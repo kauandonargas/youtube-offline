@@ -7,6 +7,9 @@ using System.Text.RegularExpressions;
 
 namespace LocalTube;
 
+// Downloader restaurado a partir do fluxo usado no YouTube Offline v0.4.0.
+// A regra principal e a mesma daquela versao: uma playlist inteira e entregue
+// ao yt-dlp em uma unica execucao, em vez de abrir um processo por video.
 public sealed class YtDlpService
 {
     private readonly LocalTubeStore _store;
@@ -14,462 +17,240 @@ public sealed class YtDlpService
     private readonly ToolManager _tools;
     private readonly ConcurrentDictionary<string, DownloadJob> _jobs = new();
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _activeCancels = new();
-    private readonly ConcurrentQueue<QueueEntry> _queue = new();
-    private readonly SemaphoreSlim _queueSignal = new(0);
-    private readonly object _jobGate = new();
-    private readonly string _archivePath;
+    private readonly ConcurrentDictionary<string, Process> _activeProcesses = new();
 
     private static readonly Regex ProgressRegex = new(@"download:\s*(?<pct>[0-9.]+)%\|(?<speed>[^|]*)\|(?<eta>.*)$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
-
-    private sealed record QueueEntry(
-        string BatchId,
-        string ItemId,
-        DownloadRequest Request,
-        string ItemUrl,
-        bool IsPlaylist,
-        int PlaylistIndex,
-        string PlaylistTitle);
-
-    private sealed class SourceAnalysis
-    {
-        public bool IsPlaylist { get; init; }
-        public string Title { get; init; } = "Vídeo";
-        public string Channel { get; init; } = "";
-        public string? Thumbnail { get; init; }
-        public double? Duration { get; init; }
-        public int[] Qualities { get; init; } = Array.Empty<int>();
-        public List<SourceEntry> Entries { get; init; } = new();
-        public string SourceId { get; init; } = "";
-    }
-
-    private sealed class SourceEntry
-    {
-        public string Id { get; init; } = "";
-        public string Url { get; init; } = "";
-        public string Title { get; init; } = "Vídeo";
-        public double? Duration { get; init; }
-        public int Index { get; init; }
-    }
+    private static readonly Regex PlaylistItemRegex = new(@"Downloading item\s+(?<current>\d+)\s+of\s+(?<total>\d+)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     public YtDlpService(LocalTubeStore store, MediaScanner scanner, ToolManager tools)
     {
         _store = store;
         _scanner = scanner;
         _tools = tools;
-        _archivePath = Path.Combine(_store.DataDirectory, "download-archive.txt");
-        _ = Task.Run(WorkerLoopAsync);
     }
 
-    public IReadOnlyCollection<DownloadJob> Jobs
-    {
-        get
-        {
-            lock (_jobGate)
-            {
-                foreach (var job in _jobs.Values) RefreshBatch(job);
-                return _jobs.Values.OrderByDescending(x => x.CreatedAt).ToArray();
-            }
-        }
-    }
-
+    public IReadOnlyCollection<DownloadJob> Jobs => _jobs.Values.OrderByDescending(x => x.CreatedAt).ToArray();
     public object GetToolStatus() => _tools.GetStatus();
 
-    public async Task<object> AnalyzeAsync(string url, string cookieBrowser = "auto")
-    {
-        var analysis = await AnalyzeSourceAsync(url, cookieBrowser);
-        return new
-        {
-            isPlaylist = analysis.IsPlaylist,
-            title = analysis.Title,
-            channel = analysis.Channel,
-            thumbnail = analysis.Thumbnail,
-            duration = analysis.Duration,
-            qualities = analysis.Qualities,
-            itemCount = analysis.IsPlaylist ? analysis.Entries.Count : 1,
-            entries = analysis.Entries.Take(12).Select(x => new
-            {
-                title = x.Title,
-                id = x.Id,
-                duration = x.Duration,
-                index = x.Index
-            }).ToArray()
-        };
-    }
-
-    public async Task<DownloadJob> StartAsync(DownloadRequest req)
-    {
-        ValidateUrl(req.Url);
-        var analysis = await AnalyzeSourceAsync(req.Url, req.CookieBrowser);
-        var isPlaylist = analysis.IsPlaylist || req.Playlist;
-
-        var job = new DownloadJob
-        {
-            Url = req.Url,
-            Title = analysis.Title,
-            Status = "queued",
-            IsPlaylist = isPlaylist
-        };
-
-        var entries = isPlaylist && analysis.Entries.Count > 0
-            ? analysis.Entries
-            : new List<SourceEntry>
-            {
-                new() { Id = analysis.SourceId, Url = req.Url, Title = analysis.Title, Duration = analysis.Duration, Index = 1 }
-            };
-
-        var knownIds = BuildKnownSourceIds();
-        var queuedIds = BuildQueuedSourceIds();
-        var archiveIds = ReadArchiveIds();
-
-        var pendingEntries = new List<QueueEntry>();
-        foreach (var source in entries)
-        {
-            var sourceKey = NormalizeSourceId(source.Id);
-            var duplicate = !string.IsNullOrWhiteSpace(sourceKey) &&
-                            (knownIds.Contains(sourceKey) || queuedIds.Contains(sourceKey) || archiveIds.Contains(sourceKey));
-
-            var item = new DownloadItemJob
-            {
-                BatchId = job.Id,
-                SourceId = source.Id,
-                Title = source.Title,
-                PlaylistIndex = isPlaylist ? source.Index : 0,
-                PlaylistTotal = isPlaylist ? entries.Count : 1,
-                Status = duplicate ? "skipped" : "queued",
-                Duplicate = duplicate,
-                Error = duplicate ? "Já está na biblioteca ou já foi baixado." : null
-            };
-            job.Items.Add(item);
-
-            if (!duplicate)
-            {
-                if (!string.IsNullOrWhiteSpace(sourceKey)) queuedIds.Add(sourceKey);
-                pendingEntries.Add(new QueueEntry(
-                    job.Id,
-                    item.Id,
-                    CloneRequest(req),
-                    string.IsNullOrWhiteSpace(source.Url) ? req.Url : source.Url,
-                    isPlaylist,
-                    source.Index,
-                    analysis.Title));
-            }
-        }
-
-        job.TotalItems = job.Items.Count;
-        RefreshBatch(job);
-        _jobs[job.Id] = job;
-
-        // Publish the batch before waking the queue worker. Otherwise a very fast
-        // worker could observe the queue entry before the parent job exists.
-        foreach (var pending in pendingEntries)
-        {
-            _queue.Enqueue(pending);
-            _queueSignal.Release();
-        }
-
-        return job;
-    }
-
-    public bool CancelItem(string itemId)
-    {
-        lock (_jobGate)
-        {
-            var item = FindItem(itemId, out var batch);
-            if (item is null || batch is null) return false;
-
-            if (item.Status is "completed" or "cancelled" or "skipped" or "failed")
-                return true;
-
-            if (item.Status == "queued")
-            {
-                item.Status = "cancelled";
-                item.Error = "Cancelado antes de iniciar.";
-                item.Progress = 0;
-                RefreshBatch(batch);
-                return true;
-            }
-
-            item.Status = "cancelling";
-            item.Error = "Cancelando…";
-            if (_activeCancels.TryGetValue(item.Id, out var cts))
-                cts.Cancel();
-            RefreshBatch(batch);
-            return true;
-        }
-    }
-
-    private async Task WorkerLoopAsync()
-    {
-        while (true)
-        {
-            await _queueSignal.WaitAsync();
-            if (!_queue.TryDequeue(out var entry)) continue;
-
-            DownloadJob? batch;
-            DownloadItemJob? item;
-            lock (_jobGate)
-            {
-                if (!_jobs.TryGetValue(entry.BatchId, out batch)) continue;
-                item = batch.Items.FirstOrDefault(x => x.Id == entry.ItemId);
-                if (item is null || item.Status != "queued") continue;
-                item.Status = "preparing";
-                item.Error = null;
-                RefreshBatch(batch);
-            }
-
-            await RunItemAsync(batch!, item!, entry);
-
-            // A short pause between playlist items reduces bursts of extractor requests.
-            // The old 0.4.1 implementation reopened the whole playlist for every child item,
-            // which could trigger YouTube's anti-bot challenge after many downloads.
-            if (entry.IsPlaylist)
-            {
-                try { await Task.Delay(TimeSpan.FromMilliseconds(1400)); } catch { }
-            }
-        }
-    }
-
-    private async Task RunItemAsync(DownloadJob batch, DownloadItemJob item, QueueEntry entry)
-    {
-        using var cts = new CancellationTokenSource();
-        _activeCancels[item.Id] = cts;
-
-        lock (_jobGate)
-        {
-            if (item.Status == "cancelling") cts.Cancel();
-        }
-
-        try
-        {
-            cts.Token.ThrowIfCancellationRequested();
-            var tool = await _tools.EnsureYtDlpAsync(cts.Token);
-
-            string? ffmpeg = null;
-            if (!string.Equals(entry.Request.Mode, "audio", StringComparison.OrdinalIgnoreCase) ||
-                !string.Equals(entry.Request.AudioFormat, "original", StringComparison.OrdinalIgnoreCase))
-            {
-                ffmpeg = (await _tools.EnsureFfmpegAsync(cts.Token)).Ffmpeg;
-            }
-
-            lock (_jobGate)
-            {
-                if (item.Status == "cancelling" || cts.IsCancellationRequested)
-                    throw new OperationCanceledException(cts.Token);
-                item.Status = "downloading";
-                item.Error = null;
-                RefreshBatch(batch);
-            }
-
-            var baseArgs = BuildArgs(
-                entry.Request,
-                ffmpeg,
-                entry.ItemUrl,
-                entry.IsPlaylist,
-                entry.PlaylistIndex,
-                entry.PlaylistTitle);
-
-            var attempt = await RunDownloadAttemptAsync(tool, baseArgs, item, cts.Token);
-
-            if (attempt.ExitCode != 0 && IsBotChallenge(attempt.Error) &&
-                !string.Equals(entry.Request.CookieBrowser, "none", StringComparison.OrdinalIgnoreCase))
-            {
-                var last = attempt;
-                var candidates = GetBrowserCandidates(entry.Request.CookieBrowser).ToArray();
-
-                foreach (var browser in candidates)
-                {
-                    cts.Token.ThrowIfCancellationRequested();
-                    lock (_jobGate)
-                    {
-                        item.Error = $"O YouTube pediu confirmação. Tentando sua sessão local do {BrowserDisplayName(browser)}…";
-                        RefreshBatch(batch);
-                    }
-
-                    var withCookies = WithBrowserCookies(baseArgs, browser);
-                    last = await RunDownloadAttemptAsync(tool, withCookies, item, cts.Token);
-                    if (last.ExitCode == 0)
-                    {
-                        attempt = last;
-                        break;
-                    }
-                }
-
-                if (attempt.ExitCode != 0)
-                    attempt = last;
-            }
-
-            if (attempt.ExitCode != 0)
-                throw new InvalidOperationException(CleanError(attempt.Error));
-
-            lock (_jobGate)
-            {
-                item.Progress = 100;
-                item.Status = "completed";
-                item.Speed = "";
-                item.Eta = "";
-                item.Error = null;
-                RefreshBatch(batch);
-            }
-            _scanner.Scan();
-        }
-        catch (OperationCanceledException)
-        {
-            CleanupPartialFiles(item.SourceId);
-            lock (_jobGate)
-            {
-                item.Status = "cancelled";
-                item.Progress = 0;
-                item.Speed = "";
-                item.Eta = "";
-                item.Error = "Cancelado.";
-                RefreshBatch(batch);
-            }
-        }
-        catch (Exception ex)
-        {
-            lock (_jobGate)
-            {
-                item.Status = "failed";
-                item.Speed = "";
-                item.Eta = "";
-                item.Error = ex.Message;
-                RefreshBatch(batch);
-            }
-        }
-        finally
-        {
-            _activeCancels.TryRemove(item.Id, out _);
-        }
-    }
-
-    private async Task<(int ExitCode, string Error)> RunDownloadAttemptAsync(
-        string tool,
-        IReadOnlyCollection<string> args,
-        DownloadItemJob item,
-        CancellationToken token)
-    {
-        var psi = new ProcessStartInfo(tool)
-        {
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            WorkingDirectory = _store.Settings.LibraryFolder
-        };
-        foreach (var arg in args) psi.ArgumentList.Add(arg);
-
-        using var process = new Process { StartInfo = psi, EnableRaisingEvents = true };
-        process.Start();
-
-        var stdoutTask = ConsumeAsync(process.StandardOutput, item, null, token);
-        var stderr = new StringBuilder();
-        var stderrTask = ConsumeAsync(process.StandardError, item, stderr, token);
-
-        try
-        {
-            await process.WaitForExitAsync(token);
-        }
-        catch (OperationCanceledException)
-        {
-            TryKill(process);
-            try { await process.WaitForExitAsync(); } catch { }
-            throw;
-        }
-
-        await Task.WhenAll(stdoutTask, stderrTask);
-        return (process.ExitCode, stderr.ToString());
-    }
-
-    private async Task<SourceAnalysis> AnalyzeSourceAsync(string url, string cookieBrowser)
+    // cookieBrowser existe apenas para manter compatibilidade com a interface atual.
+    // O fluxo restaurado da v0.4.0 nao injeta cookies nem faz retentativas por navegador.
+    public async Task<object> AnalyzeAsync(string url, string cookieBrowser = "none")
     {
         ValidateUrl(url);
         var tool = await _tools.EnsureYtDlpAsync();
 
-        var flat = await RunCaptureWithAuthFallbackAsync(tool, new[]
+        // Fluxo original da v0.4.0: primeiro uma leitura flat para descobrir playlist.
+        var flat = await RunCaptureAsync(tool, new[]
         {
             "--dump-single-json", "--flat-playlist", "--no-warnings", "--no-colors", url
-        }, TimeSpan.FromSeconds(180), cookieBrowser);
+        }, TimeSpan.FromSeconds(120));
         if (flat.ExitCode != 0)
             throw new InvalidOperationException(CleanError(flat.Error));
 
         using var flatDoc = JsonDocument.Parse(flat.Output);
         var flatRoot = flatDoc.RootElement;
         if (IsPlaylist(flatRoot))
-        {
-            var entries = new List<SourceEntry>();
-            if (flatRoot.TryGetProperty("entries", out var rawEntries) && rawEntries.ValueKind == JsonValueKind.Array)
-            {
-                var index = 0;
-                foreach (var entry in rawEntries.EnumerateArray())
-                {
-                    index++;
-                    var sourceId = GetString(entry, "id") ?? GetString(entry, "url") ?? $"playlist-item-{index}";
-                    entries.Add(new SourceEntry
-                    {
-                        Id = sourceId,
-                        Url = ResolveEntryUrl(entry, sourceId),
-                        Title = GetString(entry, "title") ?? $"Vídeo {index}",
-                        Duration = GetDouble(entry, "duration"),
-                        Index = index
-                    });
-                }
-            }
+            return BuildPlaylistAnalysis(flatRoot);
 
-            return new SourceAnalysis
-            {
-                IsPlaylist = true,
-                Title = GetString(flatRoot, "title") ?? "Playlist",
-                Channel = GetString(flatRoot, "uploader") ?? GetString(flatRoot, "channel") ?? "",
-                Thumbnail = GetThumbnail(flatRoot),
-                Qualities = new[] { 4320, 2160, 1440, 1080, 720, 480, 360 },
-                Entries = entries,
-                SourceId = GetString(flatRoot, "id") ?? ""
-            };
-        }
-
-        var result = await RunCaptureWithAuthFallbackAsync(tool, new[]
+        // Video individual: inspecao completa para listar qualidades reais.
+        var result = await RunCaptureAsync(tool, new[]
         {
             "-J", "--no-playlist", "--no-warnings", "--no-colors", url
-        }, TimeSpan.FromSeconds(180), cookieBrowser);
+        }, TimeSpan.FromSeconds(120));
         if (result.ExitCode != 0)
             throw new InvalidOperationException(CleanError(result.Error));
 
         using var doc = JsonDocument.Parse(result.Output);
-        var root = doc.RootElement;
-        return new SourceAnalysis
+        var r = doc.RootElement;
+        var heights = ExtractHeights(r);
+        return new
         {
-            IsPlaylist = false,
-            Title = GetString(root, "title") ?? "Vídeo",
-            Channel = GetString(root, "uploader") ?? GetString(root, "channel") ?? "",
-            Thumbnail = GetThumbnail(root),
-            Duration = GetDouble(root, "duration"),
-            Qualities = ExtractHeights(root),
-            SourceId = GetString(root, "id") ?? NormalizeUrl(url)
+            isPlaylist = false,
+            title = GetString(r, "title") ?? "Video",
+            channel = GetString(r, "uploader") ?? GetString(r, "channel") ?? "",
+            thumbnail = GetThumbnail(r),
+            duration = GetDouble(r, "duration"),
+            qualities = heights,
+            itemCount = 1,
+            entries = Array.Empty<object>()
         };
     }
 
-    private List<string> BuildArgs(
-        DownloadRequest req,
-        string? ffmpeg,
-        string itemUrl,
-        bool isPlaylist,
-        int playlistIndex,
-        string playlistTitle)
+    // Mantem a assinatura async usada pela interface atual, mas inicia exatamente
+    // o modelo de uma execucao por acao que existia na v0.4.0.
+    public Task<DownloadJob> StartAsync(DownloadRequest req)
     {
-        var output = isPlaylist
-            ? Path.Combine(
-                _store.Settings.LibraryFolder,
-                SanitizePathSegment(playlistTitle),
-                $"{Math.Max(1, playlistIndex):000} - %(title)s [%(id)s].%(ext)s")
+        return Task.FromResult(Start(req));
+    }
+
+    private DownloadJob Start(DownloadRequest req)
+    {
+        ValidateUrl(req.Url);
+
+        var job = new DownloadJob
+        {
+            Url = req.Url,
+            Status = "queued",
+            Title = req.Playlist ? "Playlist" : req.Url,
+            IsPlaylist = req.Playlist,
+            TotalItems = 1
+        };
+
+        // A interface atual espera itens filhos. Para nao mudar o motor restaurado,
+        // existe apenas um item visual representando a execucao inteira do yt-dlp.
+        var item = new DownloadItemJob
+        {
+            BatchId = job.Id,
+            SourceId = req.Url,
+            Title = req.Playlist ? "Playlist" : req.Url,
+            PlaylistIndex = 0,
+            PlaylistTotal = 1,
+            Status = "queued"
+        };
+        job.Items.Add(item);
+
+        _jobs[job.Id] = job;
+        _ = Task.Run(() => RunDownloadAsync(job, item, req));
+        return job;
+    }
+
+    public bool CancelItem(string itemId)
+    {
+        var pair = _jobs.Values
+            .SelectMany(job => job.Items.Select(item => (job, item)))
+            .FirstOrDefault(x => x.item.Id == itemId);
+
+        if (pair.item is null) return false;
+        if (pair.item.Status is "completed" or "cancelled" or "failed") return true;
+
+        pair.item.Status = "cancelling";
+        pair.item.Error = "Cancelando...";
+        pair.job.Status = "cancelling";
+
+        if (_activeCancels.TryGetValue(itemId, out var cts))
+            cts.Cancel();
+
+        if (_activeProcesses.TryGetValue(itemId, out var process))
+            TryKill(process);
+
+        return true;
+    }
+
+    private async Task RunDownloadAsync(DownloadJob job, DownloadItemJob item, DownloadRequest req)
+    {
+        using var cts = new CancellationTokenSource();
+        _activeCancels[item.Id] = cts;
+
+        try
+        {
+            item.Status = "preparing";
+            job.Status = "preparing";
+            var tool = await _tools.EnsureYtDlpAsync(cts.Token);
+
+            // Igual a v0.4.0: merge de video e conversoes de audio usam FFmpeg.
+            string? ffmpeg = null;
+            if (!string.Equals(req.Mode, "audio", StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(req.AudioFormat, "original", StringComparison.OrdinalIgnoreCase))
+            {
+                ffmpeg = (await _tools.EnsureFfmpegAsync(cts.Token)).Ffmpeg;
+            }
+
+            cts.Token.ThrowIfCancellationRequested();
+            item.Status = "downloading";
+            item.Error = null;
+            job.Status = "downloading";
+
+            var args = BuildArgs(req, ffmpeg);
+            var psi = new ProcessStartInfo(tool)
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = _store.Settings.LibraryFolder
+            };
+            foreach (var arg in args) psi.ArgumentList.Add(arg);
+
+            using var process = new Process { StartInfo = psi, EnableRaisingEvents = true };
+            process.Start();
+            _activeProcesses[item.Id] = process;
+
+            var stdoutTask = ConsumeAsync(process.StandardOutput, job, item);
+            var stderr = new StringBuilder();
+            var stderrTask = ConsumeAsync(process.StandardError, job, item, stderr);
+
+            try
+            {
+                await process.WaitForExitAsync(cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                TryKill(process);
+                try { await process.WaitForExitAsync(); } catch { }
+                throw;
+            }
+
+            await Task.WhenAll(stdoutTask, stderrTask);
+
+            if (process.ExitCode != 0)
+                throw new InvalidOperationException(CleanError(stderr.ToString()));
+
+            item.Progress = 100;
+            item.Status = "completed";
+            item.Speed = "";
+            item.Eta = "";
+            item.Error = null;
+
+            job.Progress = 100;
+            job.Status = "completed";
+            job.CompletedItems = Math.Max(1, job.TotalItems);
+            job.FailedItems = 0;
+            job.CancelledItems = 0;
+            job.SkippedItems = 0;
+
+            _scanner.Scan();
+        }
+        catch (OperationCanceledException)
+        {
+            item.Status = "cancelled";
+            item.Progress = 0;
+            item.Speed = "";
+            item.Eta = "";
+            item.Error = "Cancelado.";
+
+            job.Status = "cancelled";
+            job.Progress = 0;
+            job.CompletedItems = 0;
+            job.CancelledItems = 1;
+        }
+        catch (Exception ex)
+        {
+            item.Status = "failed";
+            item.Speed = "";
+            item.Eta = "";
+            item.Error = ex.Message;
+
+            job.Status = "failed";
+            job.FailedItems = 1;
+        }
+        finally
+        {
+            _activeProcesses.TryRemove(item.Id, out _);
+            _activeCancels.TryRemove(item.Id, out _);
+        }
+    }
+
+    // Esta funcao replica a construcao de argumentos da v0.4.0.
+    private List<string> BuildArgs(DownloadRequest req, string? ffmpeg)
+    {
+        var output = req.Playlist
+            ? Path.Combine(_store.Settings.LibraryFolder, "%(playlist_title)s", "%(playlist_index)03d - %(title)s [%(id)s].%(ext)s")
             : Path.Combine(_store.Settings.LibraryFolder, "%(title)s [%(id)s].%(ext)s");
 
         var args = new List<string>
         {
             "--no-colors", "--newline", "--windows-filenames",
             "--write-info-json", "--write-thumbnail",
-            "--download-archive", _archivePath,
-            "--no-overwrites",
-            "--no-playlist",
             "--progress-template", "download:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s",
             "-o", output
         };
@@ -478,6 +259,18 @@ public sealed class YtDlpService
         {
             args.Add("--ffmpeg-location");
             args.Add(Path.GetDirectoryName(ffmpeg)!);
+        }
+
+        if (req.Playlist)
+        {
+            args.Add("--yes-playlist");
+            // Um video privado/removido nao deve abortar a playlist inteira.
+            args.Add("--ignore-errors");
+            args.Add("--continue");
+        }
+        else
+        {
+            args.Add("--no-playlist");
         }
 
         if (string.Equals(req.Mode, "audio", StringComparison.OrdinalIgnoreCase))
@@ -508,164 +301,52 @@ public sealed class YtDlpService
             args.Add("mp4");
         }
 
-        args.Add(itemUrl);
+        // Uma unica URL original. Para playlist, o proprio yt-dlp percorre todos os itens.
+        args.Add(req.Url);
         return args;
     }
 
-    private static async Task ConsumeAsync(StreamReader reader, DownloadItemJob item, StringBuilder? capture, CancellationToken token)
+    private static async Task ConsumeAsync(StreamReader reader, DownloadJob job, DownloadItemJob item, StringBuilder? capture = null)
     {
-        try
+        string? line;
+        while ((line = await reader.ReadLineAsync()) is not null)
         {
-            while (!token.IsCancellationRequested)
-            {
-                var line = await reader.ReadLineAsync(token);
-                if (line is null) break;
-                capture?.AppendLine(line);
-                var trimmed = line.Trim();
+            capture?.AppendLine(line);
+            var trimmed = line.Trim();
 
-                var match = ProgressRegex.Match(trimmed);
-                if (match.Success)
+            var playlistMatch = PlaylistItemRegex.Match(trimmed);
+            if (playlistMatch.Success &&
+                int.TryParse(playlistMatch.Groups["current"].Value, out var current) &&
+                int.TryParse(playlistMatch.Groups["total"].Value, out var total))
+            {
+                item.PlaylistIndex = current;
+                item.PlaylistTotal = total;
+                job.TotalItems = total;
+                continue;
+            }
+
+            var match = ProgressRegex.Match(trimmed);
+            if (match.Success)
+            {
+                if (double.TryParse(match.Groups["pct"].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var pct))
                 {
-                    if (double.TryParse(match.Groups["pct"].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var pct))
-                        item.Progress = Math.Clamp(pct, 0, 100);
-                    item.Speed = match.Groups["speed"].Value.Trim();
-                    item.Eta = match.Groups["eta"].Value.Trim();
+                    item.Progress = Math.Clamp(pct, 0, 100);
+                    if (item.PlaylistTotal > 0 && item.PlaylistIndex > 0)
+                        job.Progress = Math.Clamp(((item.PlaylistIndex - 1) + pct / 100d) / item.PlaylistTotal * 100d, 0, 100);
+                    else
+                        job.Progress = item.Progress;
                 }
-                else if (trimmed.StartsWith("[download] Destination:", StringComparison.OrdinalIgnoreCase))
-                {
-                    var name = Path.GetFileName(trimmed[(trimmed.IndexOf(':') + 1)..].Trim());
-                    if (!string.IsNullOrWhiteSpace(name)) item.Title = Path.GetFileNameWithoutExtension(name);
-                }
+                item.Speed = match.Groups["speed"].Value.Trim();
+                item.Eta = match.Groups["eta"].Value.Trim();
+            }
+            else if (trimmed.StartsWith("[download] Destination:", StringComparison.OrdinalIgnoreCase))
+            {
+                var title = Path.GetFileName(trimmed[(trimmed.IndexOf(':') + 1)..].Trim());
+                if (!string.IsNullOrWhiteSpace(title))
+                    item.Title = title;
             }
         }
-        catch (OperationCanceledException) { }
-        catch (ObjectDisposedException) { }
     }
-
-    private HashSet<string> BuildKnownSourceIds()
-    {
-        return _scanner.Items
-            .Where(x => !string.IsNullOrWhiteSpace(x.OriginalId))
-            .Select(x => NormalizeSourceId(x.OriginalId!))
-            .Where(x => x.Length > 0)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-    }
-
-    private HashSet<string> BuildQueuedSourceIds()
-    {
-        lock (_jobGate)
-        {
-            return _jobs.Values
-                .SelectMany(x => x.Items)
-                .Where(x => x.Status is "queued" or "preparing" or "downloading" or "cancelling" or "completed")
-                .Where(x => !string.IsNullOrWhiteSpace(x.SourceId))
-                .Select(x => NormalizeSourceId(x.SourceId))
-                .Where(x => x.Length > 0)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        }
-    }
-
-    private HashSet<string> ReadArchiveIds()
-    {
-        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        try
-        {
-            if (!File.Exists(_archivePath)) return set;
-            foreach (var line in File.ReadLines(_archivePath))
-            {
-                var trimmed = line.Trim();
-                if (trimmed.Length == 0) continue;
-                var space = trimmed.LastIndexOf(' ');
-                var id = space >= 0 ? trimmed[(space + 1)..] : trimmed;
-                id = NormalizeSourceId(id);
-                if (id.Length > 0) set.Add(id);
-            }
-        }
-        catch { }
-        return set;
-    }
-
-    private static string NormalizeSourceId(string value) => (value ?? "").Trim().ToLowerInvariant();
-
-    private static string NormalizeUrl(string url)
-    {
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) return url.Trim();
-        return uri.GetLeftPart(UriPartial.Path).TrimEnd('/').ToLowerInvariant() + uri.Query;
-    }
-
-    private DownloadItemJob? FindItem(string itemId, out DownloadJob? batch)
-    {
-        foreach (var candidate in _jobs.Values)
-        {
-            var item = candidate.Items.FirstOrDefault(x => x.Id == itemId);
-            if (item is null) continue;
-            batch = candidate;
-            return item;
-        }
-        batch = null;
-        return null;
-    }
-
-    private static void RefreshBatch(DownloadJob job)
-    {
-        job.TotalItems = job.Items.Count;
-        job.CompletedItems = job.Items.Count(x => x.Status == "completed");
-        job.FailedItems = job.Items.Count(x => x.Status == "failed");
-        job.CancelledItems = job.Items.Count(x => x.Status == "cancelled");
-        job.SkippedItems = job.Items.Count(x => x.Status == "skipped");
-
-        job.Progress = job.Items.Count == 0 ? 0 : job.Items.Average(x =>
-            x.Status is "completed" or "cancelled" or "failed" or "skipped" ? 100 : x.Progress);
-
-        if (job.Items.Any(x => x.Status is "downloading" or "preparing" or "cancelling"))
-            job.Status = "downloading";
-        else if (job.Items.Any(x => x.Status == "queued"))
-            job.Status = "queued";
-        else if (job.FailedItems > 0 && job.CompletedItems == 0 && job.CancelledItems + job.SkippedItems + job.FailedItems == job.TotalItems)
-            job.Status = "failed";
-        else if (job.CancelledItems == job.TotalItems)
-            job.Status = "cancelled";
-        else
-            job.Status = "completed";
-    }
-
-    private void CleanupPartialFiles(string sourceId)
-    {
-        if (string.IsNullOrWhiteSpace(sourceId)) return;
-        try
-        {
-            foreach (var file in Directory.EnumerateFiles(_store.Settings.LibraryFolder, $"*[{sourceId}]*", SearchOption.AllDirectories))
-            {
-                var ext = Path.GetExtension(file);
-                if (ext.Equals(".part", StringComparison.OrdinalIgnoreCase) ||
-                    ext.Equals(".ytdl", StringComparison.OrdinalIgnoreCase) ||
-                    file.EndsWith(".temp", StringComparison.OrdinalIgnoreCase))
-                {
-                    try { File.Delete(file); } catch { }
-                }
-            }
-        }
-        catch { }
-    }
-
-    private static void TryKill(Process process)
-    {
-        try
-        {
-            if (!process.HasExited) process.Kill(entireProcessTree: true);
-        }
-        catch { }
-    }
-
-    private static DownloadRequest CloneRequest(DownloadRequest req) => new()
-    {
-        Url = req.Url,
-        Mode = req.Mode,
-        Quality = req.Quality,
-        AudioFormat = req.AudioFormat,
-        Playlist = req.Playlist,
-        CookieBrowser = req.CookieBrowser
-    };
 
     private static bool IsPlaylist(JsonElement root)
     {
@@ -673,6 +354,40 @@ public sealed class YtDlpService
             string.Equals(type.GetString(), "playlist", StringComparison.OrdinalIgnoreCase))
             return true;
         return root.TryGetProperty("entries", out var entries) && entries.ValueKind == JsonValueKind.Array;
+    }
+
+    private static object BuildPlaylistAnalysis(JsonElement root)
+    {
+        var previews = new List<object>();
+        var itemCount = 0;
+        if (root.TryGetProperty("entries", out var entries) && entries.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var entry in entries.EnumerateArray())
+            {
+                itemCount++;
+                if (previews.Count >= 8) continue;
+                previews.Add(new
+                {
+                    title = GetString(entry, "title") ?? "Video",
+                    id = GetString(entry, "id") ?? "",
+                    duration = GetDouble(entry, "duration"),
+                    index = itemCount
+                });
+            }
+        }
+
+        var thumbnail = GetThumbnail(root);
+        return new
+        {
+            isPlaylist = true,
+            title = GetString(root, "title") ?? "Playlist",
+            channel = GetString(root, "uploader") ?? GetString(root, "channel") ?? "",
+            thumbnail,
+            duration = (double?)null,
+            qualities = new[] { 4320, 2160, 1440, 1080, 720, 480, 360 },
+            itemCount,
+            entries = previews
+        };
     }
 
     private static int[] ExtractHeights(JsonElement root)
@@ -685,116 +400,6 @@ public sealed class YtDlpService
                     heights.Add(hi);
         }
         return heights.Reverse().ToArray();
-    }
-
-
-    private static string ResolveEntryUrl(JsonElement entry, string sourceId)
-    {
-        foreach (var property in new[] { "webpage_url", "original_url", "url" })
-        {
-            var value = GetString(entry, property);
-            if (Uri.TryCreate(value, UriKind.Absolute, out var uri) &&
-                (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
-                return value!;
-        }
-
-        var extractor = GetString(entry, "ie_key") ?? GetString(entry, "extractor_key") ?? "";
-        if (extractor.Contains("youtube", StringComparison.OrdinalIgnoreCase) ||
-            (sourceId.Length == 11 && !sourceId.Contains('/')))
-            return $"https://www.youtube.com/watch?v={Uri.EscapeDataString(sourceId)}";
-
-        // Most non-YouTube flat playlists expose an absolute URL. If they do not,
-        // keep the extractor value; yt-dlp may still understand it.
-        return GetString(entry, "url") ?? sourceId;
-    }
-
-    private static string SanitizePathSegment(string value)
-    {
-        var name = string.IsNullOrWhiteSpace(value) ? "Playlist" : value.Trim();
-        foreach (var c in Path.GetInvalidFileNameChars())
-            name = name.Replace(c, '_');
-        name = name.Trim().TrimEnd('.');
-        if (name.Length == 0) name = "Playlist";
-        return name.Length > 120 ? name[..120] : name;
-    }
-
-    private static bool IsBotChallenge(string error) =>
-        error.Contains("Sign in to confirm you’re not a bot", StringComparison.OrdinalIgnoreCase) ||
-        error.Contains("Sign in to confirm you're not a bot", StringComparison.OrdinalIgnoreCase) ||
-        error.Contains("cookies-from-browser", StringComparison.OrdinalIgnoreCase) &&
-        error.Contains("authentication", StringComparison.OrdinalIgnoreCase);
-
-    private static IEnumerable<string> GetBrowserCandidates(string? requested)
-    {
-        var mode = (requested ?? "auto").Trim().ToLowerInvariant();
-        if (mode == "none") yield break;
-        if (mode is "edge" or "chrome" or "firefox" or "brave")
-        {
-            yield return mode;
-            yield break;
-        }
-
-        var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        var roaming = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        var candidates = new (string Name, string Path)[]
-        {
-            ("edge", Path.Combine(local, "Microsoft", "Edge", "User Data")),
-            ("chrome", Path.Combine(local, "Google", "Chrome", "User Data")),
-            ("brave", Path.Combine(local, "BraveSoftware", "Brave-Browser", "User Data")),
-            ("firefox", Path.Combine(roaming, "Mozilla", "Firefox", "Profiles"))
-        };
-
-        var any = false;
-        foreach (var candidate in candidates)
-        {
-            if (!Directory.Exists(candidate.Path)) continue;
-            any = true;
-            yield return candidate.Name;
-        }
-
-        // Edge is part of current Windows installations. Keeping it as a last
-        // candidate also covers non-standard profile locations.
-        if (!any)
-            yield return "edge";
-    }
-
-    private static string BrowserDisplayName(string browser) => browser.ToLowerInvariant() switch
-    {
-        "edge" => "Edge",
-        "chrome" => "Chrome",
-        "firefox" => "Firefox",
-        "brave" => "Brave",
-        _ => browser
-    };
-
-    private static List<string> WithBrowserCookies(IEnumerable<string> sourceArgs, string browser)
-    {
-        var args = sourceArgs.ToList();
-        var insertAt = Math.Max(0, args.Count - 1); // keep the URL as the last argument
-        args.Insert(insertAt, "--cookies-from-browser");
-        args.Insert(insertAt + 1, browser);
-        return args;
-    }
-
-    private static async Task<(int ExitCode, string Output, string Error)> RunCaptureWithAuthFallbackAsync(
-        string file,
-        IEnumerable<string> sourceArgs,
-        TimeSpan timeout,
-        string? cookieBrowser)
-    {
-        var args = sourceArgs.ToArray();
-        var first = await RunCaptureAsync(file, args, timeout);
-        if (first.ExitCode == 0 || !IsBotChallenge(first.Error) ||
-            string.Equals(cookieBrowser, "none", StringComparison.OrdinalIgnoreCase))
-            return first;
-
-        foreach (var browser in GetBrowserCandidates(cookieBrowser))
-        {
-            var retry = await RunCaptureAsync(file, WithBrowserCookies(args, browser), timeout);
-            if (retry.ExitCode == 0) return retry;
-        }
-
-        return first;
     }
 
     private static string? GetString(JsonElement root, string name) =>
@@ -821,7 +426,7 @@ public sealed class YtDlpService
     private static void ValidateUrl(string url)
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || (uri.Scheme != "http" && uri.Scheme != "https"))
-            throw new ArgumentException("Cole um link http/https válido.");
+            throw new ArgumentException("Cole um link http/https valido.");
     }
 
     private static async Task<(int ExitCode, string Output, string Error)> RunCaptureAsync(string file, IEnumerable<string> args, TimeSpan timeout)
@@ -835,31 +440,30 @@ public sealed class YtDlpService
         };
         foreach (var arg in args) psi.ArgumentList.Add(arg);
 
-        using var process = Process.Start(psi) ?? throw new InvalidOperationException("Não foi possível iniciar yt-dlp.");
+        using var p = Process.Start(psi) ?? throw new InvalidOperationException("Nao foi possivel iniciar yt-dlp.");
         using var cts = new CancellationTokenSource(timeout);
-        try
-        {
-            var outTask = process.StandardOutput.ReadToEndAsync(cts.Token);
-            var errTask = process.StandardError.ReadToEndAsync(cts.Token);
-            await process.WaitForExitAsync(cts.Token);
-            return (process.ExitCode, await outTask, await errTask);
-        }
-        catch (OperationCanceledException)
-        {
-            TryKill(process);
-            throw new TimeoutException("O YouTube demorou demais para responder. Tente novamente.");
-        }
+        var outTask = p.StandardOutput.ReadToEndAsync(cts.Token);
+        var errTask = p.StandardError.ReadToEndAsync(cts.Token);
+        await p.WaitForExitAsync(cts.Token);
+        return (p.ExitCode, await outTask, await errTask);
     }
 
     private static string CleanError(string error)
     {
-        if (IsBotChallenge(error))
-            return "O YouTube pediu uma confirmação anti-bot. O YouTube Offline tentou reduzir as requisições e, quando permitido, reutilizar sua sessão local do navegador. Se continuar, abra o YouTube no Edge/Chrome, confirme que a página funciona normalmente e tente de novo; ou aguarde alguns minutos. O aplicativo não pede nem armazena sua senha.";
-
         var lines = error.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
         var useful = lines.LastOrDefault(x => x.Contains("ERROR:", StringComparison.OrdinalIgnoreCase))
                   ?? lines.LastOrDefault(x => !x.Contains("WARNING:", StringComparison.OrdinalIgnoreCase))
                   ?? lines.LastOrDefault();
         return useful ?? "Falha ao processar o link.";
+    }
+
+    private static void TryKill(Process process)
+    {
+        try
+        {
+            if (!process.HasExited)
+                process.Kill(entireProcessTree: true);
+        }
+        catch { }
     }
 }
