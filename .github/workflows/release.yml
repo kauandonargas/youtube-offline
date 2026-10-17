@@ -1,4 +1,4 @@
-name: Build e publicar atualização
+name: Build e publicar atualizacao
 
 on:
   push:
@@ -9,10 +9,11 @@ on:
       - 'scripts/**'
       - '.github/workflows/release.yml'
       - 'RELEASE_NOTES.md'
+      - 'source/**'
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: youtube-offline-release
@@ -23,28 +24,38 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 35
     env:
-      RELEASE_REPO: kauandonargas/youtube-offline-releases
-      GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Checkout do código
+      - name: Checkout do codigo
         uses: actions/checkout@v4
+
+      - name: Restaurar codigo-fonte versionado
+        shell: pwsh
+        run: |
+          $parts = Get-ChildItem 'source/part-*.b64' | Sort-Object Name
+          if (-not $parts) { throw 'Partes do codigo-fonte nao encontradas.' }
+          $b64 = (($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join '') -replace '\s',''
+          $bytes = [Convert]::FromBase64String($b64)
+          $zip = Join-Path $env:RUNNER_TEMP 'youtube-offline-source.zip'
+          [IO.File]::WriteAllBytes($zip, $bytes)
+          Expand-Archive -Path $zip -DestinationPath . -Force
 
       - name: Configurar .NET 8
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
 
-      - name: Ler versão
+      - name: Ler versao
         id: version
         shell: pwsh
         run: |
           $text = Get-Content 'src/LocalTube.App/LocalTube.App.csproj' -Raw
           $m = [regex]::Match($text, '<Version>([^<]+)</Version>')
-          if (-not $m.Success) { throw 'Versão não encontrada no csproj.' }
+          if (-not $m.Success) { throw 'Versao nao encontrada no csproj.' }
           $version = $m.Groups[1].Value.Trim()
-          if ($version -notmatch '^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$') { throw "Versão inválida: $version" }
+          if ($version -notmatch '^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$') { throw "Versao invalida: $version" }
           "version=$version" >> $env:GITHUB_OUTPUT
-          Write-Host "Versão: $version"
+          Write-Host "Versao: $version"
 
       - name: Instalar Inno Setup
         shell: pwsh
@@ -60,60 +71,62 @@ jobs:
         run: |
           $version = '${{ steps.version.outputs.version }}'
           $exe = "dist/installer/YouTube-Offline-Setup-$version-x64.exe"
-          if (-not (Test-Path $exe)) { throw "Instalador não encontrado: $exe" }
+          if (-not (Test-Path $exe)) { throw "Instalador nao encontrado: $exe" }
           $hash = (Get-FileHash -Path $exe -Algorithm SHA256).Hash.ToLowerInvariant()
           Set-Content -Path "$exe.sha256" -Value "$hash  YouTube-Offline-Setup-$version-x64.exe" -Encoding ascii
           "sha256=$hash" >> $env:GITHUB_OUTPUT
+          Write-Host "SHA-256: $hash"
+
+      - name: Preparar notas
+        shell: pwsh
+        run: |
+          if (Test-Path 'RELEASE_NOTES.md') {
+            $notes = (Get-Content 'RELEASE_NOTES.md' -Raw).Trim()
+          } else {
+            $notes = 'Atualizacao do YouTube Offline.'
+          }
+          if ([string]::IsNullOrWhiteSpace($notes)) { $notes = 'Atualizacao do YouTube Offline.' }
+          Set-Content -Path "$env:RUNNER_TEMP/release-notes.md" -Value $notes -Encoding utf8
 
       - name: Publicar GitHub Release
         shell: pwsh
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN)) { throw 'Secret RELEASES_TOKEN não configurado.' }
           $version = '${{ steps.version.outputs.version }}'
           $tag = "v$version"
           $exe = "dist/installer/YouTube-Offline-Setup-$version-x64.exe"
           $sha = "$exe.sha256"
-          $notes = if (Test-Path 'RELEASE_NOTES.md') { 'RELEASE_NOTES.md' } else { $null }
-          gh release view $tag --repo $env:RELEASE_REPO *> $null
+          gh release view $tag --repo '${{ github.repository }}' *> $null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload $tag $exe $sha --repo $env:RELEASE_REPO --clobber
-          } elseif ($notes) {
-            gh release create $tag $exe $sha --repo $env:RELEASE_REPO --title "YouTube Offline $version" --notes-file $notes
+            gh release upload $tag $exe $sha --repo '${{ github.repository }}' --clobber
           } else {
-            gh release create $tag $exe $sha --repo $env:RELEASE_REPO --title "YouTube Offline $version" --notes "Atualização do YouTube Offline."
+            gh release create $tag $exe $sha --repo '${{ github.repository }}' --title "YouTube Offline $version" --notes-file "$env:RUNNER_TEMP/release-notes.md"
           }
 
-      - name: Atualizar feed público
+      - name: Atualizar feed publico
         shell: pwsh
         run: |
           $version = '${{ steps.version.outputs.version }}'
           $sha256 = '${{ steps.hash.outputs.sha256 }}'
-          $installerUrl = "https://github.com/kauandonargas/youtube-offline-releases/releases/download/v$version/YouTube-Offline-Setup-$version-x64.exe"
-          $notesRaw = if (Test-Path 'RELEASE_NOTES.md') { (Get-Content 'RELEASE_NOTES.md' -Raw).Trim() } else { 'Atualização do YouTube Offline.' }
+          $installerUrl = "https://github.com/${{ github.repository }}/releases/download/v$version/YouTube-Offline-Setup-$version-x64.exe"
+          $notesRaw = if (Test-Path 'RELEASE_NOTES.md') { (Get-Content 'RELEASE_NOTES.md' -Raw).Trim() } else { 'Atualizacao do YouTube Offline.' }
           $noteLines = @($notesRaw -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') } | ForEach-Object { $_ -replace '^[-*]\s*', '' })
-          if (-not $noteLines.Count) { $noteLines = @('Atualização do YouTube Offline.') }
-          $temp = Join-Path $env:RUNNER_TEMP 'releases-repo'
-          gh repo clone $env:RELEASE_REPO $temp -- --depth 1
-          Push-Location $temp
-          try {
-            $manifest = [ordered]@{
-              schemaVersion = 1
-              product = 'YouTube Offline'
-              version = $version
-              publishedAt = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
-              installerUrl = $installerUrl
-              sha256 = $sha256
-              mandatory = $false
-              notes = $noteLines
-            }
-            $manifest | ConvertTo-Json -Depth 5 | Set-Content update.json -Encoding utf8
-            git config user.name 'github-actions[bot]'
-            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git add update.json
-            git diff --cached --quiet
-            if ($LASTEXITCODE -ne 0) {
-              git commit -m "Atualiza feed para YouTube Offline $version"
-              git push
-            }
+          if (-not $noteLines.Count) { $noteLines = @('Atualizacao do YouTube Offline.') }
+          $manifest = [ordered]@{
+            schemaVersion = 1
+            product = 'YouTube Offline'
+            version = $version
+            publishedAt = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+            installerUrl = $installerUrl
+            sha256 = $sha256
+            mandatory = $false
+            notes = $noteLines
           }
-          finally { Pop-Location }
+          $manifest | ConvertTo-Json -Depth 5 | Set-Content update.json -Encoding utf8
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add update.json
+          git diff --cached --quiet
+          if ($LASTEXITCODE -ne 0) {
+            git commit -m "Atualiza feed para YouTube Offline $version"
+            git push
+          }
