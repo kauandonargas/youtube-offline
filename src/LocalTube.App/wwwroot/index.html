@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <title>YouTube Offline</title>
+  <link rel="icon" href="/favicon.ico" sizes="any" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="top-left">
+      <button class="round-btn" id="menuBtn" aria-label="Alternar menu" title="Menu">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      </button>
+      <button class="brand" id="brandBtn" aria-label="YouTube Offline - Início">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span>YouTube Offline</span>
+      </button>
+    </div>
+
+    <form class="search" id="searchForm">
+      <input id="searchInput" type="search" autocomplete="off" placeholder="Pesquisar na sua biblioteca" />
+      <button type="submit" aria-label="Pesquisar" title="Pesquisar">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.2 4.2"/></svg>
+      </button>
+    </form>
+
+    <div class="top-actions">
+      <div class="profile-dot" title="Biblioteca local">Y</div>
+    </div>
+  </header>
+
+  <aside class="sidebar" id="sidebar">
+    <nav>
+      <button class="nav-item active" data-view="home">
+        <svg viewBox="0 0 24 24"><path d="M3 11.5 12 4l9 7.5V21h-6v-6H9v6H3z"/></svg><span>Início</span>
+      </button>
+      <button class="nav-item" data-view="library">
+        <svg viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/><path d="m10 9 6 3-6 3z"/></svg><span>Biblioteca</span>
+      </button>
+      <button class="nav-item" data-view="history">
+        <svg viewBox="0 0 24 24"><path d="M4 5v5h5"/><path d="M5 10a8 8 0 1 1 1.8 6.1"/><path d="M12 8v5l3 2"/></svg><span>Histórico</span>
+      </button>
+      <button class="nav-item" data-view="watchlater">
+        <svg viewBox="0 0 24 24"><path d="M12 7v5l3 2"/><circle cx="12" cy="12" r="8"/><path d="M19 4v5M16.5 6.5h5"/></svg><span>Assistir mais tarde</span>
+      </button>
+      <button class="nav-item" data-view="liked">
+        <svg viewBox="0 0 24 24"><path d="M8 21H4V10h4zM8 10l4-7c2 0 2 1.5 1.5 4L13 9h6c1.4 0 2 1 1.7 2.3l-1.5 7C19 20 18 21 16.5 21H8z"/></svg><span>Vídeos curtidos</span>
+      </button>
+
+      <div class="nav-divider"></div>
+      <div class="nav-label">Você</div>
+      <button class="nav-item" data-view="playlists">
+        <svg viewBox="0 0 24 24"><path d="M5 6h10M5 11h10M5 16h6"/><path d="m16 15 5 3-5 3z"/></svg><span>Playlists</span>
+      </button>
+      <button class="nav-item" data-view="audio">
+        <svg viewBox="0 0 24 24"><path d="M9 18V6l10-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg><span>Áudios</span>
+      </button>
+
+      <div class="nav-divider"></div>
+      <div class="nav-label">Arquivos</div>
+      <button class="nav-item" id="downloadsNav" data-action="downloads">
+        <svg viewBox="0 0 24 24"><path d="M12 3v11m-4-4 4 4 4-4M5 19h14"/></svg><span>Downloads</span>
+      </button>
+      <button class="nav-item" data-view="settings">
+        <svg viewBox="0 0 24 24"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z"/><path d="M19 12a7 7 0 0 0-.08-1l2-1.5-2-3.5-2.45 1a7.6 7.6 0 0 0-1.72-1L14.5 3h-5L9.2 6a7.3 7.3 0 0 0-1.68 1L5 6 3 9.5 5.05 11a7.9 7.9 0 0 0 0 2L3 14.5 5 18l2.52-1a7.3 7.3 0 0 0 1.68 1l.3 3h5l.25-3a7.6 7.6 0 0 0 1.72-1L19 18l2-3.5-2.08-1.5c.05-.33.08-.66.08-1Z"/></svg><span>Configurações</span>
+      </button>
+    </nav>
+    <div class="sidebar-foot">Biblioteca local • somente no seu PC</div>
+  </aside>
+
+  <main class="content" id="content"></main>
+
+  <div class="toast hidden" id="toast"></div>
+  <script src="/app.js"></script>
+</body>
+</html>
