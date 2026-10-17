@@ -5,13 +5,17 @@ namespace LocalTube;
 
 public sealed class ToolManager
 {
-    private const string YtDlpUrl = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe";
+    // O canal nightly é o recomendado pelo próprio yt-dlp para uso normal e recebe
+    // correções de compatibilidade com sites muito antes do canal stable.
+    private const string YtDlpUrl = "https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest/download/yt-dlp.exe";
+    private const string DenoZipUrl = "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip";
     private const string FfmpegZipUrl = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip";
     private static readonly TimeSpan YtDlpRefreshInterval = TimeSpan.FromHours(12);
 
     private readonly string _userToolsDir;
     private readonly string _ytDlpRefreshStamp;
     private readonly SemaphoreSlim _ytDlpGate = new(1, 1);
+    private readonly SemaphoreSlim _denoGate = new(1, 1);
     private readonly SemaphoreSlim _ffmpegGate = new(1, 1);
 
     public ToolManager(LocalTubeStore store)
@@ -25,18 +29,20 @@ public sealed class ToolManager
     public object GetStatus()
     {
         var ytdlp = LocateYtDlp();
+        var deno = LocateDeno();
         var ffmpeg = Locate("ffmpeg.exe", "ffmpeg");
         var ffprobe = Locate("ffprobe.exe", "ffprobe");
         return new
         {
             ytDlp = new { available = ytdlp is not null, path = ytdlp },
+            deno = new { available = deno is not null, path = deno },
             ffmpeg = new { available = ffmpeg is not null, path = ffmpeg },
             ffprobe = new { available = ffprobe is not null, path = ffprobe }
         };
     }
 
-    // A cópia do diretório de dados tem prioridade sobre a cópia empacotada.
-    // Isso permite atualizar o yt-dlp sem precisar reinstalar o aplicativo.
+    // A cópia gravável tem prioridade sobre a cópia empacotada. Assim o motor
+    // pode ser atualizado entre releases do aplicativo.
     public string? LocateYtDlp()
     {
         try
@@ -49,6 +55,7 @@ public sealed class ToolManager
         return Locate("yt-dlp.exe", "yt-dlp");
     }
 
+    public string? LocateDeno() => Locate("deno.exe", "deno");
     public string? LocateFfmpeg() => Locate("ffmpeg.exe", "ffmpeg");
     public string? LocateFfprobe() => Locate("ffprobe.exe", "ffprobe");
 
@@ -61,8 +68,9 @@ public sealed class ToolManager
         return await RefreshYtDlpCoreAsync(existing, force: false, cancellationToken);
     }
 
-    // Usado quando o YouTube invalida a URL de mídia (por exemplo HTTP 403).
-    // Força uma cópia atual do yt-dlp e ignora o intervalo normal de atualização.
+    // Um 403 pode ser causado por URLs de mídia expiradas em conjunto com uma
+    // versão do extrator que já ficou para trás. A recuperação força uma cópia
+    // atual antes de extrair novamente a URL do vídeo.
     public async Task<string> RefreshYtDlpAsync(CancellationToken cancellationToken = default)
     {
         return await RefreshYtDlpCoreAsync(LocateYtDlp(), force: true, cancellationToken);
@@ -83,8 +91,6 @@ public sealed class ToolManager
             try
             {
                 await DownloadFileAsync(YtDlpUrl, temp, TimeSpan.FromMinutes(4), cancellationToken);
-
-                // Evita substituir um executável válido por uma resposta HTML/truncada.
                 if (!File.Exists(temp) || new FileInfo(temp).Length < 1_000_000)
                     throw new InvalidOperationException("O arquivo recebido para o yt-dlp é inválido ou incompleto.");
 
@@ -94,10 +100,11 @@ public sealed class ToolManager
                     WriteYtDlpRefreshStamp();
                     return target;
                 }
-                catch (IOException) when (fallback is not null)
+                catch (Exception ex) when (fallback is not null && ex is IOException or UnauthorizedAccessException)
                 {
-                    // Outro download pode estar executando a cópia atual no Windows.
-                    // A nova cópia ainda pode ser usada nesta tentativa e será limpa depois.
+                    // Se outra tarefa estiver usando o executável atual, o Windows
+                    // pode impedir a substituição. A cópia nova ainda serve para
+                    // esta tentativa e será limpa em uma execução futura.
                     WriteYtDlpRefreshStamp();
                     return temp;
                 }
@@ -163,6 +170,50 @@ public sealed class ToolManager
         catch { }
     }
 
+    public async Task<string> EnsureDenoAsync(CancellationToken cancellationToken = default)
+    {
+        var existing = LocateDeno();
+        if (existing is not null) return existing;
+
+        await _denoGate.WaitAsync(cancellationToken);
+        try
+        {
+            existing = LocateDeno();
+            if (existing is not null) return existing;
+
+            var zip = Path.Combine(_userToolsDir, "deno.zip.download");
+            var extract = Path.Combine(_userToolsDir, "deno-extract-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                await DownloadFileAsync(DenoZipUrl, zip, TimeSpan.FromMinutes(6), cancellationToken);
+                Directory.CreateDirectory(extract);
+                ZipFile.ExtractToDirectory(zip, extract, true);
+
+                var deno = Directory.EnumerateFiles(extract, "deno.exe", SearchOption.AllDirectories).FirstOrDefault();
+                if (deno is null)
+                    throw new InvalidOperationException("O pacote baixado não continha deno.exe.");
+
+                var target = Path.Combine(_userToolsDir, "deno.exe");
+                File.Copy(deno, target, true);
+                return target;
+            }
+            finally
+            {
+                TryDeleteFile(zip);
+                TryDeleteDirectory(extract);
+            }
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException(
+                "Não foi possível preparar o runtime JavaScript necessário para o YouTube. " + ex.Message, ex);
+        }
+        finally
+        {
+            _denoGate.Release();
+        }
+    }
+
     public async Task<(string Ffmpeg, string? Ffprobe)> EnsureFfmpegAsync(CancellationToken cancellationToken = default)
     {
         var existing = LocateFfmpeg();
@@ -214,6 +265,7 @@ public sealed class ToolManager
     public async Task PrepareAllAsync(CancellationToken cancellationToken = default)
     {
         await EnsureYtDlpAsync(cancellationToken);
+        await EnsureDenoAsync(cancellationToken);
         await EnsureFfmpegAsync(cancellationToken);
     }
 
