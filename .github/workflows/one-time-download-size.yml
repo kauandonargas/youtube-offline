@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/one-time-download-size.yml'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -17,125 +18,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
       - name: Aplicar melhoria e criar versao 0.5.8
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
-
-          function Replace-Exact([string]$Path, [string]$Old, [string]$New) {
-            $text = Get-Content $Path -Raw
-            if (-not $text.Contains($Old)) { throw "Trecho esperado nao encontrado em $Path" }
-            $text = $text.Replace($Old, $New)
-            Set-Content -Path $Path -Value $text -Encoding utf8NoBOM
-          }
-
-          $downloadService = 'src/LocalTube.App/DownloadService.cs'
-          Replace-Exact $downloadService @'
-    private static readonly Regex ProgressRegex = new(@"download:\s*(?<pct>[0-9.]+)%\|(?<speed>[^|]*)\|(?<eta>.*)$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
-'@ @'
-    private static readonly Regex ProgressRegex = new(@"download:\s*(?<pct>[0-9.]+)%\|(?<speed>[^|]*)\|(?<eta>[^|]*)\|(?<downloaded>[^|]*)\|(?<total>[^|]*)\|(?<estimated>.*)$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
-'@
-
-          Replace-Exact $downloadService @'
-            "--progress-template", "download:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s",
-'@ @'
-            "--progress-template", "download:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s|%(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress.total_bytes_estimate)s",
-'@
-
-          Replace-Exact $downloadService @'
-                item.Speed = progress.Groups["speed"].Value.Trim();
-                item.Eta = progress.Groups["eta"].Value.Trim();
-'@ @'
-                item.Speed = progress.Groups["speed"].Value.Trim();
-                item.Eta = progress.Groups["eta"].Value.Trim();
-                item.DownloadedBytes = ParseProgressBytes(progress.Groups["downloaded"].Value);
-
-                var exactTotal = ParseProgressBytes(progress.Groups["total"].Value);
-                var estimatedTotal = ParseProgressBytes(progress.Groups["estimated"].Value);
-                if (exactTotal > 0)
-                {
-                    item.TotalBytes = exactTotal;
-                    item.TotalBytesEstimated = false;
-                }
-                else if (estimatedTotal > 0)
-                {
-                    item.TotalBytes = estimatedTotal;
-                    item.TotalBytesEstimated = true;
-                }
-'@
-
-          Replace-Exact $downloadService @'
-    private bool IsKnownSingleVideo(string sourceId)
-'@ @'
-    private static long ParseProgressBytes(string value)
-    {
-        var text = (value ?? "").Trim();
-        return long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var bytes) && bytes > 0
-            ? bytes
-            : 0;
-    }
-
-    private bool IsKnownSingleVideo(string sourceId)
-'@
-
-          $models = 'src/LocalTube.App/Models.cs'
-          Replace-Exact $models @'
-    public string Eta { get; set; } = "";
-    public string? Error { get; set; }
-'@ @'
-    public string Eta { get; set; } = "";
-    public long DownloadedBytes { get; set; }
-    public long TotalBytes { get; set; }
-    public bool TotalBytesEstimated { get; set; }
-    public string? Error { get; set; }
-'@
-
-          $queue = 'src/LocalTube.App/wwwroot/queue-fixes.js'
-          Replace-Exact $queue @'
-  function visibleBatchSummary(items) {
-'@ @'
-  function formatTransferBytes(bytes) {
-    let value = Number(bytes || 0);
-    if (!Number.isFinite(value) || value <= 0) return '';
-    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-    let unit = 0;
-    while (value >= 1024 && unit < units.length - 1) {
-      value /= 1024;
-      unit++;
-    }
-    const digits = unit === 0 || value >= 100 ? 0 : 1;
-    return `${value.toFixed(digits)} ${units[unit]}`;
-  }
-
-  function visibleBatchSummary(items) {
-'@
-
-          Replace-Exact $queue @'
-              const detail = item.error || [item.speed, item.eta ? `restam ${item.eta}` : ''].filter(Boolean).join(' • ');
-'@ @'
-              const downloaded = formatTransferBytes(item.downloadedBytes);
-              const total = formatTransferBytes(item.totalBytes);
-              const sizeText = downloaded
-                ? (total ? `${downloaded} / ${item.totalBytesEstimated ? '≈ ' : ''}${total}` : `${downloaded} baixados`)
-                : (total ? `${item.totalBytesEstimated ? '≈ ' : ''}${total} total` : '');
-              const detail = item.error || [sizeText, item.speed, item.eta ? `restam ${item.eta}` : ''].filter(Boolean).join(' • ');
-'@
-
-          Replace-Exact 'src/LocalTube.App/LocalTube.App.csproj' '<Version>0.5.7</Version>' '<Version>0.5.8</Version>'
-          Set-Content -Path 'VERSION' -Value '0.5.8' -Encoding utf8NoBOM
-          @'
-# YouTube Offline 0.5.8
-
-- Mostra em tempo real quanto já foi transferido durante cada download (MB/GB).
-- Mostra o tamanho total do arquivo quando o YouTube informa o valor, ou o tamanho estimado quando só há estimativa.
-- Mantém velocidade, porcentagem e tempo restante junto com o tamanho transferido.
-- Em playlists, o tamanho exibido acompanha o arquivo/vídeo que está sendo transferido naquele momento, mantendo a playlist como uma única tarefa na fila.
-'@ | Set-Content -Path 'RELEASE_NOTES.md' -Encoding utf8NoBOM
-
-          git rm '.github/workflows/one-time-download-size.yml'
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src VERSION RELEASE_NOTES.md
-          git commit -m 'YouTube Offline 0.5.8: mostra MB transferidos e tamanho do arquivo'
-          git push
+          $b64 = 'JEVycm9yQWN0aW9uUHJlZmVyZW5jZSA9ICdTdG9wJwoKZnVuY3Rpb24gUmVwbGFjZS1FeGFjdChbc3RyaW5nXSRQYXRoLCBbc3RyaW5nXSRPbGQsIFtzdHJpbmddJE5ldykgewogICR0ZXh0ID0gR2V0LUNvbnRlbnQgJFBhdGggLVJhdwogIGlmICgtbm90ICR0ZXh0LkNvbnRhaW5zKCRPbGQpKSB7IHRocm93ICJUcmVjaG8gZXNwZXJhZG8gbmFvIGVuY29udHJhZG8gZW0gJFBhdGgiIH0KICAkdGV4dCA9ICR0ZXh0LlJlcGxhY2UoJE9sZCwgJE5ldykKICBbSU8uRmlsZV06OldyaXRlQWxsVGV4dCgoUmVzb2x2ZS1QYXRoICRQYXRoKSwgJHRleHQsIFtUZXh0LlVURjhFbmNvZGluZ106Om5ldygkZmFsc2UpKQp9CgokZG93bmxvYWRTZXJ2aWNlID0gJ3NyYy9Mb2NhbFR1YmUuQXBwL0Rvd25sb2FkU2VydmljZS5jcycKUmVwbGFjZS1FeGFjdCAkZG93bmxvYWRTZXJ2aWNlIEAnCiAgICBwcml2YXRlIHN0YXRpYyByZWFkb25seSBSZWdleCBQcm9ncmVzc1JlZ2V4ID0gbmV3KEAiZG93bmxvYWQ6XHMqKD88cGN0PlswLTkuXSspJVx8KD88c3BlZWQ+W158XSopXHwoPzxldGE+LiopJCIsIFJlZ2V4T3B0aW9ucy5Db21waWxlZCB8IFJlZ2V4T3B0aW9ucy5JZ25vcmVDYXNlKTsKJ0AgQCcKICAgIHByaXZhdGUgc3RhdGljIHJlYWRvbmx5IFJlZ2V4IFByb2dyZXNzUmVnZXggPSBuZXcoQCJkb3dubG9hZDpccyooPzxwY3Q+WzAtOS5dKyklXHwoPzxzcGVlZD5bXnxdKilcfCg/PGV0YT5bXnxdKilcfCg/PGRvd25sb2FkZWQ+W158XSopXHwoPzx0b3RhbD5bXnxdKilcfCg/PGVzdGltYXRlZD4uKikkIiwgUmVnZXhPcHRpb25zLkNvbXBpbGVkIHwgUmVnZXhPcHRpb25zLklnbm9yZUNhc2UpOwonQAoKUmVwbGFjZS1FeGFjdCAkZG93bmxvYWRTZXJ2aWNlIEAnCiAgICAgICAgICAgICItLXByb2dyZXNzLXRlbXBsYXRlIiwgImRvd25sb2FkOiUocHJvZ3Jlc3MuX3BlcmNlbnRfc3RyKXN8JShwcm9ncmVzcy5fc3BlZWRfc3RyKXN8JShwcm9ncmVzcy5fZXRhX3N0cilzIiwKJ0AgQCcKICAgICAgICAgICAgIi0tcHJvZ3Jlc3MtdGVtcGxhdGUiLCAiZG93bmxvYWQ6JShwcm9ncmVzcy5fcGVyY2VudF9zdHIpc3wlKHByb2dyZXNzLl9zcGVlZF9zdHIpc3wlKHByb2dyZXNzLl9ldGFfc3RyKXN8JShwcm9ncmVzcy5kb3dubG9hZGVkX2J5dGVzKXN8JShwcm9ncmVzcy50b3RhbF9ieXRlcylzfCUocHJvZ3Jlc3MudG90YWxfYnl0ZXNfZXN0aW1hdGUpcyIsCidACgpSZXBsYWNlLUV4YWN0ICRkb3dubG9hZFNlcnZpY2UgQCcKICAgICAgICAgICAgICAgIGl0ZW0uU3BlZWQgPSBwcm9ncmVzcy5Hcm91cHNbInNwZWVkIl0uVmFsdWUuVHJpbSgpOwogICAgICAgICAgICAgICAgaXRlbS5FdGEgPSBwcm9ncmVzcy5Hcm91cHNbImV0YSJdLlZhbHVlLlRyaW0oKTsKJ0AgQCcKICAgICAgICAgICAgICAgIGl0ZW0uU3BlZWQgPSBwcm9ncmVzcy5Hcm91cHNbInNwZWVkIl0uVmFsdWUuVHJpbSgpOwogICAgICAgICAgICAgICAgaXRlbS5FdGEgPSBwcm9ncmVzcy5Hcm91cHNbImV0YSJdLlZhbHVlLlRyaW0oKTsKICAgICAgICAgICAgICAgIGl0ZW0uRG93bmxvYWRlZEJ5dGVzID0gUGFyc2VQcm9ncmVzc0J5dGVzKHByb2dyZXNzLkdyb3Vwc1siZG93bmxvYWRlZCJdLlZhbHVlKTsKCiAgICAgICAgICAgICAgICB2YXIgZXhhY3RUb3RhbCA9IFBhcnNlUHJvZ3Jlc3NCeXRlcyhwcm9ncmVzcy5Hcm91cHNbInRvdGFsIl0uVmFsdWUpOwogICAgICAgICAgICAgICAgdmFyIGVzdGltYXRlZFRvdGFsID0gUGFyc2VQcm9ncmVzc0J5dGVzKHByb2dyZXNzLkdyb3Vwc1siZXN0aW1hdGVkIl0uVmFsdWUpOwogICAgICAgICAgICAgICAgaWYgKGV4YWN0VG90YWwgPiAwKQogICAgICAgICAgICAgICAgewogICAgICAgICAgICAgICAgICAgIGl0ZW0uVG90YWxCeXRlcyA9IGV4YWN0VG90YWw7CiAgICAgICAgICAgICAgICAgICAgaXRlbS5Ub3RhbEJ5dGVzRXN0aW1hdGVkID0gZmFsc2U7CiAgICAgICAgICAgICAgICB9CiAgICAgICAgICAgICAgICBlbHNlIGlmIChlc3RpbWF0ZWRUb3RhbCA+IDApCiAgICAgICAgICAgICAgICB7CiAgICAgICAgICAgICAgICAgICAgaXRlbS5Ub3RhbEJ5dGVzID0gZXN0aW1hdGVkVG90YWw7CiAgICAgICAgICAgICAgICAgICAgaXRlbS5Ub3RhbEJ5dGVzRXN0aW1hdGVkID0gdHJ1ZTsKICAgICAgICAgICAgICAgIH0KJ0AKClJlcGxhY2UtRXhhY3QgJGRvd25sb2FkU2VydmljZSBAJwogICAgcHJpdmF0ZSBib29sIElzS25vd25TaW5nbGVWaWRlbyhzdHJpbmcgc291cmNlSWQpCidAIEAnCiAgICBwcml2YXRlIHN0YXRpYyBsb25nIFBhcnNlUHJvZ3Jlc3NCeXRlcyhzdHJpbmcgdmFsdWUpCiAgICB7CiAgICAgICAgdmFyIHRleHQgPSAodmFsdWUgPz8gIiIpLlRyaW0oKTsKICAgICAgICByZXR1cm4gbG9uZy5UcnlQYXJzZSh0ZXh0LCBOdW1iZXJTdHlsZXMuSW50ZWdlciwgQ3VsdHVyZUluZm8uSW52YXJpYW50Q3VsdHVyZSwgb3V0IHZhciBieXRlcykgJiYgYnl0ZXMgPiAwCiAgICAgICAgICAgID8gYnl0ZXMKICAgICAgICAgICAgOiAwOwogICAgfQoKICAgIHByaXZhdGUgYm9vbCBJc0tub3duU2luZ2xlVmlkZW8oc3RyaW5nIHNvdXJjZUlkKQonQAoKJG1vZGVscyA9ICdzcmMvTG9jYWxUdWJlLkFwcC9Nb2RlbHMuY3MnClJlcGxhY2UtRXhhY3QgJG1vZGVscyBAJwogICAgcHVibGljIHN0cmluZyBFdGEgeyBnZXQ7IHNldDsgfSA9ICIiOwogICAgcHVibGljIHN0cmluZz8gRXJyb3IgeyBnZXQ7IHNldDsgfQonQCBAJwogICAgcHVibGljIHN0cmluZyBFdGEgeyBnZXQ7IHNldDsgfSA9ICIiOwogICAgcHVibGljIGxvbmcgRG93bmxvYWRlZEJ5dGVzIHsgZ2V0OyBzZXQ7IH0KICAgIHB1YmxpYyBsb25nIFRvdGFsQnl0ZXMgeyBnZXQ7IHNldDsgfQogICAgcHVibGljIGJvb2wgVG90YWxCeXRlc0VzdGltYXRlZCB7IGdldDsgc2V0OyB9CiAgICBwdWJsaWMgc3RyaW5nPyBFcnJvciB7IGdldDsgc2V0OyB9CidACgokcXVldWUgPSAnc3JjL0xvY2FsVHViZS5BcHAvd3d3cm9vdC9xdWV1ZS1maXhlcy5qcycKUmVwbGFjZS1FeGFjdCAkcXVldWUgQCcKICBmdW5jdGlvbiB2aXNpYmxlQmF0Y2hTdW1tYXJ5KGl0ZW1zKSB7CidAIEAnCiAgZnVuY3Rpb24gZm9ybWF0VHJhbnNmZXJCeXRlcyhieXRlcykgewogICAgbGV0IHZhbHVlID0gTnVtYmVyKGJ5dGVzIHx8IDApOwogICAgaWYgKCFOdW1iZXIuaXNGaW5pdGUodmFsdWUpIHx8IHZhbHVlIDw9IDApIHJldHVybiAnJzsKICAgIGNvbnN0IHVuaXRzID0gWydCJywgJ0tCJywgJ01CJywgJ0dCJywgJ1RCJ107CiAgICBsZXQgdW5pdCA9IDA7CiAgICB3aGlsZSAodmFsdWUgPj0gMTAyNCAmJiB1bml0IDwgdW5pdHMubGVuZ3RoIC0gMSkgewogICAgICB2YWx1ZSAvPSAxMDI0OwogICAgICB1bml0Kys7CiAgICB9CiAgICBjb25zdCBkaWdpdHMgPSB1bml0ID09PSAwIHx8IHZhbHVlID49IDEwMCA/IDAgOiAxOwogICAgcmV0dXJuIGAke3ZhbHVlLnRvRml4ZWQoZGlnaXRzKX0gJHt1bml0c1t1bml0XX1gOwogIH0KCiAgZnVuY3Rpb24gdmlzaWJsZUJhdGNoU3VtbWFyeShpdGVtcykgewonQAoKUmVwbGFjZS1FeGFjdCAkcXVldWUgQCcKICAgICAgICAgICAgICBjb25zdCBkZXRhaWwgPSBpdGVtLmVycm9yIHx8IFtpdGVtLnNwZWVkLCBpdGVtLmV0YSA/IGByZXN0YW0gJHtpdGVtLmV0YX1gIDogJyddLmZpbHRlcihCb29sZWFuKS5qb2luKCcg4oCiICcpOwonQCBAJwogICAgICAgICAgICAgIGNvbnN0IGRvd25sb2FkZWQgPSBmb3JtYXRUcmFuc2ZlckJ5dGVzKGl0ZW0uZG93bmxvYWRlZEJ5dGVzKTsKICAgICAgICAgICAgICBjb25zdCB0b3RhbCA9IGZvcm1hdFRyYW5zZmVyQnl0ZXMoaXRlbS50b3RhbEJ5dGVzKTsKICAgICAgICAgICAgICBjb25zdCBzaXplVGV4dCA9IGRvd25sb2FkZWQKICAgICAgICAgICAgICAgID8gKHRvdGFsID8gYCR7ZG93bmxvYWRlZH0gLyAke2l0ZW0udG90YWxCeXRlc0VzdGltYXRlZCA/ICfiiYggJyA6ICcnfSR7dG90YWx9YCA6IGAke2Rvd25sb2FkZWR9IGJhaXhhZG9zYCkKICAgICAgICAgICAgICAgIDogKHRvdGFsID8gYCR7aXRlbS50b3RhbEJ5dGVzRXN0aW1hdGVkID8gJ+KJiCAnIDogJyd9JHt0b3RhbH0gdG90YWxgIDogJycpOwogICAgICAgICAgICAgIGNvbnN0IGRldGFpbCA9IGl0ZW0uZXJyb3IgfHwgW3NpemVUZXh0LCBpdGVtLnNwZWVkLCBpdGVtLmV0YSA/IGByZXN0YW0gJHtpdGVtLmV0YX1gIDogJyddLmZpbHRlcihCb29sZWFuKS5qb2luKCcg4oCiICcpOwonQAoKUmVwbGFjZS1FeGFjdCAnc3JjL0xvY2FsVHViZS5BcHAvTG9jYWxUdWJlLkFwcC5jc3Byb2onICc8VmVyc2lvbj4wLjUuNzwvVmVyc2lvbj4nICc8VmVyc2lvbj4wLjUuODwvVmVyc2lvbj4nCltJTy5GaWxlXTo6V3JpdGVBbGxUZXh0KChSZXNvbHZlLVBhdGggJ1ZFUlNJT04nKSwgIjAuNS44YG4iLCBbVGV4dC5VVEY4RW5jb2RpbmddOjpuZXcoJGZhbHNlKSkKJG5vdGVzID0gQCcKIyBZb3VUdWJlIE9mZmxpbmUgMC41LjgKCi0gTW9zdHJhIGVtIHRlbXBvIHJlYWwgcXVhbnRvIGrDoSBmb2kgdHJhbnNmZXJpZG8gZHVyYW50ZSBjYWRhIGRvd25sb2FkIChNQi9HQikuCi0gTW9zdHJhIG8gdGFtYW5obyB0b3RhbCBkbyBhcnF1aXZvIHF1YW5kbyBvIFlvdVR1YmUgaW5mb3JtYSBvIHZhbG9yLCBvdSBvIHRhbWFuaG8gZXN0aW1hZG8gcXVhbmRvIHPDsyBow6EgZXN0aW1hdGl2YS4KLSBNYW50w6ltIHZlbG9jaWRhZGUsIHBvcmNlbnRhZ2VtIGUgdGVtcG8gcmVzdGFudGUganVudG8gY29tIG8gdGFtYW5obyB0cmFuc2Zlcmlkby4KLSBFbSBwbGF5bGlzdHMsIG8gdGFtYW5obyBleGliaWRvIGFjb21wYW5oYSBvIGFycXVpdm8vdsOtZGVvIHF1ZSBlc3TDoSBzZW5kbyB0cmFuc2ZlcmlkbyBuYXF1ZWxlIG1vbWVudG8sIG1hbnRlbmRvIGEgcGxheWxpc3QgY29tbyB1bWEgw7puaWNhIHRhcmVmYSBuYSBmaWxhLgonQApbSU8uRmlsZV06OldyaXRlQWxsVGV4dCgoUmVzb2x2ZS1QYXRoICdSRUxFQVNFX05PVEVTLm1kJyksICRub3RlcyArICJgbiIsIFtUZXh0LlVURjhFbmNvZGluZ106Om5ldygkZmFsc2UpKQoKZ2l0IHJtICcuZ2l0aHViL3dvcmtmbG93cy9vbmUtdGltZS1kb3dubG9hZC1zaXplLnltbCcKZ2l0IGNvbmZpZyB1c2VyLm5hbWUgJ2dpdGh1Yi1hY3Rpb25zW2JvdF0nCmdpdCBjb25maWcgdXNlci5lbWFpbCAnNDE4OTgyODIrZ2l0aHViLWFjdGlvbnNbYm90XUB1c2Vycy5ub3JlcGx5LmdpdGh1Yi5jb20nCmdpdCBhZGQgc3JjIFZFUlNJT04gUkVMRUFTRV9OT1RFUy5tZApnaXQgY29tbWl0IC1tICdZb3VUdWJlIE9mZmxpbmUgMC41Ljg6IG1vc3RyYSBNQiB0cmFuc2Zlcmlkb3MgZSB0YW1hbmhvIGRvIGFycXVpdm8nCmdpdCBwdXNoCg=='
+          $script = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($b64))
+          Invoke-Expression $script
