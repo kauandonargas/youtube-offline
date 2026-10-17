@@ -1,16 +1,17 @@
 {
   "schemaVersion": 1,
   "product": "YouTube Offline",
-  "version": "0.5.18",
-  "publishedAt": "2026-10-17T16:46:01Z",
-  "installerUrl": "https://github.com/kauandonargas/youtube-offline/releases/download/v0.5.18/YouTube-Offline-Setup-0.5.18-x64.exe",
-  "sha256": "187eda553c11d13d32449056555d115b0eafe2cad773ac00d07b1266394559d3",
+  "version": "0.5.19",
+  "publishedAt": "2026-10-17T22:42:00Z",
+  "installerUrl": "https://github.com/kauandonargas/youtube-offline/releases/download/v0.5.19/YouTube-Offline-Setup-0.5.19-x64.exe",
+  "sha256": "805ca2dd582bcb30711614993a3f6bcd23ce30676afc1f0fa5ee09a0ddc31a69",
   "mandatory": false,
   "notes": [
-    "Corrige o erro do instalador `DeleteFile failed; código 5. Acesso negado` ao atualizar com `yt-dlp.exe`, Deno ou FFmpeg ainda em uso.",
-    "As ferramentas externas passam a ser tratadas como seed de primeira instalação: em atualizações, o instalador não tenta sobrescrever executáveis já existentes em `tools`.",
-    "O yt-dlp operacional continua sendo atualizado pelo próprio aplicativo no diretório de dados do usuário, sem depender da cópia empacotada.",
-    "Mantém a correção da 0.5.17 que impede fechamento automático da janela durante a verificação de atualização.",
-    "Mantém as correções de download HTTP 403, yt-dlp nightly e Deno."
+    "Corrige a falha do Restart Manager ao tentar fechar outros programas que mantêm o yt-dlp.exe em uso durante a atualização.",
+    "Restringe a detecção de aplicativos a fechar aos arquivos executáveis e bibliotecas do YouTube Offline, preservando ferramentas externas em execução.",
+    "Elimina definitivamente a instalação automática na inicialização: o programa apenas verifica atualizações e não fecha sem solicitação.",
+    "Adiciona verificações reais no Windows: abertura e permanência do processo, API local, métricas de CPU/memória e reinstalação com yt-dlp bloqueado.",
+    "Bloqueia a publicação se o teste de reinstalação com ferramenta bloqueada falhar.",
+    "Mantém o mecanismo de downloads e as demais funcionalidades da 0.5.18."
   ]
 }
