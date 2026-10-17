@@ -55,21 +55,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Baixar e conferir instalador publicado 0.5.18
+      - name: Configurar .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Instalar Inno Setup
         shell: pwsh
-        run: |
-          $url = 'https://github.com/kauandonargas/youtube-offline/releases/download/v0.5.18/YouTube-Offline-Setup-0.5.18-x64.exe'
-          $exe = Join-Path $env:RUNNER_TEMP 'YouTube-Offline-Setup-0.5.18-x64.exe'
-          Invoke-WebRequest -Uri $url -OutFile $exe -MaximumRedirection 10
-          $actual = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($actual -ne '187eda553c11d13d32449056555d115b0eafe2cad773ac00d07b1266394559d3') {
-            throw 'Checksum do instalador de referencia divergente.'
-          }
+        run: choco install innosetup -y --no-progress
+
+      - name: Criar instalador desta PR com ferramentas embutidas
+        shell: powershell
+        env:
+          YOUTUBE_OFFLINE_EMBED_TOOLS: '1'
+        run: .\scripts\build-installer.ps1 -NoOpen
 
       - name: Reinstalar com yt-dlp bloqueado
         shell: pwsh
         run: |
-          .\tests\verify-installer.ps1 -InstallerPath "$env:RUNNER_TEMP\YouTube-Offline-Setup-0.5.18-x64.exe" -WorkDir "$env:RUNNER_TEMP\installer-lock-test"
+          .\tests\verify-installer.ps1 -InstallerPath ".\dist\installer\YouTube-Offline-Setup-0.5.18-x64.exe" -WorkDir "$env:RUNNER_TEMP\installer-lock-test"
 
       - name: Logs do Inno Setup
         if: always()
