@@ -117,15 +117,13 @@ public sealed class UpdateService
 
     public async Task<bool> TryInstallAvailableUpdateAsync(CancellationToken cancellationToken = default)
     {
+        // Esta chamada é usada pela inicialização do aplicativo. Ela deve apenas
+        // consultar o feed; instalar silenciosamente e chamar Application.Exit()
+        // poucos segundos depois de abrir a janela torna qualquer falha do
+        // instalador indistinguível de um crash. A instalação continua disponível
+        // explicitamente por DownloadInstallerAsync + LaunchInstaller.
         await CheckAsync(cancellationToken);
-
-        UpdateFeed? feed;
-        lock (_sync) feed = _feed;
-        if (feed is null || !IsNewer(feed.Version, CurrentVersion)) return false;
-
-        var installer = await DownloadInstallerAsync(cancellationToken);
-        LaunchInstaller(installer);
-        return true;
+        return false;
     }
 
     public async Task<string> DownloadInstallerAsync(CancellationToken cancellationToken = default)
@@ -168,9 +166,6 @@ public sealed class UpdateService
             var total = response.Content.Headers.ContentLength;
             await using var input = await response.Content.ReadAsStreamAsync(cancellationToken);
 
-            // Feche explicitamente o arquivo temporario antes de tentar ler seu SHA-256.
-            // Antes desta correcao ele permanecia aberto com FileShare.None e o proprio
-            // atualizador falhava ao tentar reabri-lo para validacao.
             await using (var output = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None, 128 * 1024, true))
             {
                 var buffer = new byte[128 * 1024];
