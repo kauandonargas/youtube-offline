@@ -1,7 +1,9 @@
-# YouTube Offline 0.5.13
+# YouTube Offline 0.5.14
 
-- Restaura o fluxo de download da versão 0.4.0, recuperado do arquivo original `YouTube-Offline-v0.4.0.zip` criado antes das regressões posteriores.
-- Playlist volta a ser entregue ao yt-dlp em uma única execução com `--yes-playlist`, `--ignore-errors` e `--continue`.
-- Remove do motor restaurado a divisão da playlist em uma tarefa/processo por vídeo e as retentativas automáticas com cookies do navegador.
-- A análise volta a usar primeiro `--dump-single-json --flat-playlist` e só faz inspeção completa para vídeo individual.
-- Mantém apenas a camada atual de interface, instalador e atualização automática ao redor do motor antigo.
+- Mantém o motor de playlists restaurado da v0.4: uma playlist inteira é processada por uma única execução do yt-dlp.
+- Substitui a tela de downloads remendada por uma interface dedicada e coerente com o funcionamento real do backend.
+- Remove o `queue-fixes.js` e as sobrescritas em runtime que dificultavam manutenção e diagnóstico.
+- Mostra playlists como uma única tarefa com progresso geral, vídeo atual, velocidade e ETA quando disponíveis.
+- Remove da interface o fluxo de cookies do navegador que não é usado pelo motor restaurado.
+- Impede iniciar um download usando uma análise antiga depois que o link foi alterado.
+- Alinha os modelos internos para não voltar ao desenho regressivo de um processo por vídeo da playlist.
