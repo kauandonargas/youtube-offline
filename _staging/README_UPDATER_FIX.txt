@@ -1,1 +1,0 @@
-This staging file should be removed in the final updater-fix commit.

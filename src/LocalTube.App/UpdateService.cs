@@ -167,22 +167,28 @@ public sealed class UpdateService
             response.EnsureSuccessStatusCode();
             var total = response.Content.Headers.ContentLength;
             await using var input = await response.Content.ReadAsStreamAsync(cancellationToken);
-            await using var output = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None, 128 * 1024, true);
-            var buffer = new byte[128 * 1024];
-            long written = 0;
-            while (true)
+
+            // Feche explicitamente o arquivo temporario antes de tentar ler seu SHA-256.
+            // Antes desta correcao ele permanecia aberto com FileShare.None e o proprio
+            // atualizador falhava ao tentar reabri-lo para validacao.
+            await using (var output = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None, 128 * 1024, true))
             {
-                var read = await input.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken);
-                if (read <= 0) break;
-                await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
-                written += read;
-                if (total is > 0)
+                var buffer = new byte[128 * 1024];
+                long written = 0;
+                while (true)
                 {
-                    var pct = (int)Math.Clamp(written * 100L / total.Value, 0, 99);
-                    lock (_sync) _downloadPercent = pct;
+                    var read = await input.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken);
+                    if (read <= 0) break;
+                    await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+                    written += read;
+                    if (total is > 0)
+                    {
+                        var pct = (int)Math.Clamp(written * 100L / total.Value, 0, 99);
+                        lock (_sync) _downloadPercent = pct;
+                    }
                 }
+                await output.FlushAsync(cancellationToken);
             }
-            await output.FlushAsync(cancellationToken);
 
             if (!await HashMatchesAsync(temp, feed.Sha256, cancellationToken))
                 throw new InvalidOperationException("O instalador baixado falhou na validação SHA-256. A atualização foi cancelada.");
