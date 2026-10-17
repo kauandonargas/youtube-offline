@@ -1,16 +1,15 @@
 {
   "schemaVersion": 1,
   "product": "YouTube Offline",
-  "version": "0.5.16",
-  "publishedAt": "2026-10-17T16:23:37Z",
-  "installerUrl": "https://github.com/kauandonargas/youtube-offline/releases/download/v0.5.16/YouTube-Offline-Setup-0.5.16-x64.exe",
-  "sha256": "a8a4ac3ba898d48d936b53fdb7eb3901ba3bef191c6ac97450879f8c1267722c",
+  "version": "0.5.17",
+  "publishedAt": "2026-10-17T16:40:33Z",
+  "installerUrl": "https://github.com/kauandonargas/youtube-offline/releases/download/v0.5.17/YouTube-Offline-Setup-0.5.17-x64.exe",
+  "sha256": "813dfc62e63c89a9f32759ad8fce4a06d367ffbe55424f6eabaa962f01458c8c",
   "mandatory": false,
   "notes": [
-    "Corrige falhas `HTTP Error 403: Forbidden` renovando o yt-dlp e reextraindo a URL de mídia antes de desistir do download.",
-    "Passa a usar o canal nightly do yt-dlp e mantém uma cópia atualizável no diretório de dados do aplicativo.",
-    "Inclui Deno e o fornece explicitamente ao yt-dlp para os desafios JavaScript atuais do YouTube.",
-    "Evita empacotar uma cópia antiga do yt-dlp vinda do cache mensal do build.",
-    "Adiciona retentativas de rede e isola as execuções de configurações globais externas do yt-dlp."
+    "Impede que o aplicativo instale atualizações silenciosamente poucos segundos depois de abrir e feche a própria janela sem ação do usuário.",
+    "A inicialização agora apenas verifica se existe atualização; a instalação continua disponível quando solicitada explicitamente.",
+    "Define explicitamente a versão do assembly como 0.5.17.0 para evitar divergências entre a versão exibida pelo executável e a versão publicada no feed.",
+    "Mantém as correções de download HTTP 403, yt-dlp nightly e Deno introduzidas na 0.5.16."
   ]
 }
