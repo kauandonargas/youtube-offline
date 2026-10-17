@@ -1,0 +1,106 @@
+name: Verificacao Windows
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: verify-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  startup:
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Guardas de regressao
+        shell: pwsh
+        run: .\tests\check-source-guards.ps1
+
+      - name: Compilar aplicativo Windows
+        shell: pwsh
+        run: |
+          # O build oficial materializa o icone versionado antes do dotnet publish.
+          .\scripts\build.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Build oficial falhou.' }
+
+      - name: Startup, API e medidas de repouso
+        shell: pwsh
+        run: |
+          $text = Get-Content .\src\LocalTube.App\LocalTube.App.csproj -Raw
+          $m = [regex]::Match($text, '<Version>([^<]+)</Version>')
+          if (-not $m.Success) { throw 'Versao nao encontrada.' }
+          .\tests\verify-startup.ps1 -AppPath ".\dist\YouTubeOffline\YouTubeOffline.exe" -ExpectedVersion $m.Groups[1].Value -MetricsPath "$env:RUNNER_TEMP\startup-metrics.json"
+
+      - name: Evidencias de tempo e recursos
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-startup-metrics
+          path: ${{ runner.temp }}\startup-metrics.json
+          if-no-files-found: ignore
+
+  installer-lock:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Instalar Inno Setup
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+
+      - name: Compilar pacote de teste do instalador com ferramentas sentinela
+        shell: pwsh
+        run: |
+          # Teste do Inno Setup, sem baixar centenas de MB de ferramentas.
+          # O release oficial ainda usa as ferramentas reais e repete o teste.
+          .\scripts\build.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Build falhou.' }
+          $tools = '.\dist\YouTubeOffline\tools'
+          New-Item -ItemType Directory -Path $tools -Force | Out-Null
+          foreach ($name in @('yt-dlp.exe', 'deno.exe', 'ffmpeg.exe', 'ffprobe.exe')) {
+            [IO.File]::WriteAllBytes((Join-Path $tools $name), [Text.Encoding]::ASCII.GetBytes('installer-lock-test-fixture'))
+          }
+          $text = Get-Content .\src\LocalTube.App\LocalTube.App.csproj -Raw
+          $version = [regex]::Match($text, '<Version>([^<]+)</Version>').Groups[1].Value
+          if (-not $version) { throw 'Versao ausente.' }
+          $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc)) { throw 'ISCC.exe nao encontrado.' }
+          & $iscc "/DMyAppVersion=$version" '.\installer\LocalTube.iss'
+          if ($LASTEXITCODE -ne 0) { throw 'Compilacao do instalador falhou.' }
+
+      - name: Reinstalar com yt-dlp bloqueado
+        shell: pwsh
+        run: |
+          $text = Get-Content .\src\LocalTube.App\LocalTube.App.csproj -Raw
+          $version = [regex]::Match($text, '<Version>([^<]+)</Version>').Groups[1].Value
+          if (-not $version) { throw 'Versao ausente.' }
+          $installer = ".\dist\installer\YouTube-Offline-Setup-$version-x64.exe"
+          .\tests\verify-installer.ps1 -InstallerPath $installer -WorkDir "$env:RUNNER_TEMP\installer-lock-test"
+
+      - name: Logs do Inno Setup
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-lock-logs
+          path: ${{ runner.temp }}\installer-lock-test\logs\*.log
+          if-no-files-found: ignore

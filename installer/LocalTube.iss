@@ -25,6 +25,10 @@ UninstallDisplayIcon={app}\{#MyAppExeName}
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 CloseApplications=yes
+; Encerrar somente processos que utilizam os arquivos do aplicativo.
+; O yt-dlp, Deno e FFmpeg em tools podem estar em uso e nao sao
+; sobrescritos; nao devem provocar encerramento pelo Restart Manager.
+CloseApplicationsFilter=YouTubeOffline.exe,*.dll
 RestartApplications=no
 
 [Languages]
