@@ -1,0 +1,45 @@
+name: Ajustar playlists grandes
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/patch-large-playlists.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Aplicar ajuste
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path('src/LocalTube.App/DownloadService.cs')
+          s = p.read_text(encoding='utf-8')
+          old = '''            args.Add("--yes-playlist");\n            args.Add("--ignore-errors");'''
+          new = '''            args.Add("--yes-playlist");\n            // Em playlists grandes, começa a processar os vídeos conforme eles são\n            // encontrados em vez de esperar a playlist inteira ser enumerada.\n            args.Add("--lazy-playlist");\n            args.Add("--ignore-errors");'''
+          if old not in s:
+              raise SystemExit('Trecho da playlist nao encontrado')
+          p.write_text(s.replace(old, new, 1), encoding='utf-8', newline='\n')
+
+          c = Path('src/LocalTube.App/LocalTube.App.csproj')
+          cs = c.read_text(encoding='utf-8').replace('<Version>0.5.10</Version>', '<Version>0.5.11</Version>', 1)
+          c.write_text(cs, encoding='utf-8', newline='\n')
+
+          Path('VERSION').write_text('0.5.11\n', encoding='utf-8')
+          Path('RELEASE_NOTES.md').write_text('''# YouTube Offline 0.5.11\n\n- Corrige playlists grandes que podiam ficar muito tempo em 0% antes do primeiro vídeo.\n- O yt-dlp agora começa a processar e baixar os itens conforme a playlist é enumerada, sem esperar a lista inteira terminar.\n- Mantém uma playlist como uma única tarefa e continua mostrando vídeo atual, quantos faltam, tamanho e velocidade.\n''', encoding='utf-8', newline='\n')
+          PY
+
+          git rm '.github/workflows/patch-large-playlists.yml'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src VERSION RELEASE_NOTES.md
+          git commit -m 'YouTube Offline 0.5.11: inicia playlists grandes mais rapido'
+          git push
