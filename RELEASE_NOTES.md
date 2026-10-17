@@ -1,5 +1,7 @@
-# YouTube Offline 0.5.15
+# YouTube Offline 0.5.16
 
-- Corrige a análise de playlists e vídeos quando o yt-dlp retorna campos JSON nulos, como `duration` ou `height`.
-- Evita a exceção `The requested operation requires an element of type 'Number', but the target element has type 'Null'.`
-- Torna a leitura dos metadados mais tolerante a entradas indisponíveis ou metadados incompletos sem alterar o motor de download restaurado da v0.4.
+- Corrige falhas `HTTP Error 403: Forbidden` renovando o yt-dlp e reextraindo a URL de mídia antes de desistir do download.
+- Passa a usar o canal nightly do yt-dlp e mantém uma cópia atualizável no diretório de dados do aplicativo.
+- Inclui Deno e o fornece explicitamente ao yt-dlp para os desafios JavaScript atuais do YouTube.
+- Evita empacotar uma cópia antiga do yt-dlp vinda do cache mensal do build.
+- Adiciona retentativas de rede e isola as execuções de configurações globais externas do yt-dlp.
