@@ -1,6 +1,6 @@
-# YouTube Offline 0.5.3
+# YouTube Offline 0.5.4
 
-- Simplifica a atualizacao automatica usando o proprio repositorio publico.
-- Remove a necessidade de GitHub CLI, token pessoal ou login no GitHub para atualizar.
-- O aplicativo consulta update.json, valida SHA-256 e instala a nova versao automaticamente.
-- Mantem a fila individual de downloads, cancelamento por video e prevencao de duplicatas.
+- Ao analisar um novo link, a fila deixa de acumular downloads antigos já concluídos, cancelados, ignorados ou com erro.
+- O botão de cancelar de cada item agora é um X compacto.
+- Ao clicar no X, o item some imediatamente da lista enquanto o cancelamento é enviado ao downloader.
+- Downloads que ainda estão realmente na fila ou em andamento continuam visíveis.
