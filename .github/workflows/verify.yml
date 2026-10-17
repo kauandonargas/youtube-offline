@@ -1,0 +1,48 @@
+name: Verificacao Windows
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  startup:
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Guardas de regressao
+        shell: pwsh
+        run: .\tests\check-source-guards.ps1
+
+      - name: Compilar aplicativo Windows
+        shell: pwsh
+        run: |
+          dotnet publish .\src\LocalTube.App\LocalTube.App.csproj -c Release -r win-x64 --self-contained true -o "$env:RUNNER_TEMP\youtube-offline-smoke"
+          if ($LASTEXITCODE -ne 0) { throw 'dotnet publish falhou.' }
+
+      - name: Startup, API e medidas de repouso
+        shell: pwsh
+        run: |
+          $text = Get-Content .\src\LocalTube.App\LocalTube.App.csproj -Raw
+          $m = [regex]::Match($text, '<Version>([^<]+)</Version>')
+          if (-not $m.Success) { throw 'Versao nao encontrada.' }
+          .\tests\verify-startup.ps1 -AppPath "$env:RUNNER_TEMP\youtube-offline-smoke\YouTubeOffline.exe" -ExpectedVersion $m.Groups[1].Value -MetricsPath "$env:RUNNER_TEMP\startup-metrics.json"
+
+      - name: Evidencias de tempo e recursos
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-startup-metrics
+          path: ${{ runner.temp }}\startup-metrics.json
+          if-no-files-found: ignore
