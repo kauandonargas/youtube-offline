@@ -1,15 +1,15 @@
 {
   "schemaVersion": 1,
   "product": "YouTube Offline",
-  "version": "0.5.3",
-  "publishedAt": "2026-10-17T06:14:56Z",
-  "installerUrl": "https://github.com/kauandonargas/youtube-offline/releases/download/v0.5.3/YouTube-Offline-Setup-0.5.3-x64.exe",
-  "sha256": "865fa0359452684727fba4479e6b37f01f2ad9327717c4e6885fa46043c5de2c",
+  "version": "0.5.4",
+  "publishedAt": "2026-10-17T06:33:15Z",
+  "installerUrl": "https://github.com/kauandonargas/youtube-offline/releases/download/v0.5.4/YouTube-Offline-Setup-0.5.4-x64.exe",
+  "sha256": "f3bf2441b4c245745586f512dc25ded596c1201a45ac51523bf247feece495f3",
   "mandatory": false,
   "notes": [
-    "Simplifica a atualizacao automatica usando o proprio repositorio publico.",
-    "Remove a necessidade de GitHub CLI, token pessoal ou login no GitHub para atualizar.",
-    "O aplicativo consulta update.json, valida SHA-256 e instala a nova versao automaticamente.",
-    "Mantem a fila individual de downloads, cancelamento por video e prevencao de duplicatas."
+    "Ao analisar um novo link, a fila deixa de acumular downloads antigos já concluídos, cancelados, ignorados ou com erro.",
+    "O botão de cancelar de cada item agora é um X compacto.",
+    "Ao clicar no X, o item some imediatamente da lista enquanto o cancelamento é enviado ao downloader.",
+    "Downloads que ainda estão realmente na fila ou em andamento continuam visíveis."
   ]
 }
