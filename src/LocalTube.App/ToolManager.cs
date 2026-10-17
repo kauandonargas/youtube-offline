@@ -7,20 +7,24 @@ public sealed class ToolManager
 {
     private const string YtDlpUrl = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe";
     private const string FfmpegZipUrl = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip";
+    private static readonly TimeSpan YtDlpRefreshInterval = TimeSpan.FromHours(12);
 
     private readonly string _userToolsDir;
+    private readonly string _ytDlpRefreshStamp;
     private readonly SemaphoreSlim _ytDlpGate = new(1, 1);
     private readonly SemaphoreSlim _ffmpegGate = new(1, 1);
 
     public ToolManager(LocalTubeStore store)
     {
         _userToolsDir = Path.Combine(store.DataDirectory, "tools");
+        _ytDlpRefreshStamp = Path.Combine(_userToolsDir, ".yt-dlp-refresh");
         Directory.CreateDirectory(_userToolsDir);
+        CleanupOldYtDlpRefreshFiles();
     }
 
     public object GetStatus()
     {
-        var ytdlp = Locate("yt-dlp.exe", "yt-dlp");
+        var ytdlp = LocateYtDlp();
         var ffmpeg = Locate("ffmpeg.exe", "ffmpeg");
         var ffprobe = Locate("ffprobe.exe", "ffprobe");
         return new
@@ -31,36 +35,132 @@ public sealed class ToolManager
         };
     }
 
-    public string? LocateYtDlp() => Locate("yt-dlp.exe", "yt-dlp");
+    // A cópia do diretório de dados tem prioridade sobre a cópia empacotada.
+    // Isso permite atualizar o yt-dlp sem precisar reinstalar o aplicativo.
+    public string? LocateYtDlp()
+    {
+        try
+        {
+            var userCopy = Path.Combine(_userToolsDir, "yt-dlp.exe");
+            if (File.Exists(userCopy)) return userCopy;
+        }
+        catch { }
+
+        return Locate("yt-dlp.exe", "yt-dlp");
+    }
+
     public string? LocateFfmpeg() => Locate("ffmpeg.exe", "ffmpeg");
     public string? LocateFfprobe() => Locate("ffprobe.exe", "ffprobe");
 
     public async Task<string> EnsureYtDlpAsync(CancellationToken cancellationToken = default)
     {
         var existing = LocateYtDlp();
-        if (existing is not null) return existing;
+        if (existing is not null && !ShouldRefreshYtDlp())
+            return existing;
 
+        return await RefreshYtDlpCoreAsync(existing, force: false, cancellationToken);
+    }
+
+    // Usado quando o YouTube invalida a URL de mídia (por exemplo HTTP 403).
+    // Força uma cópia atual do yt-dlp e ignora o intervalo normal de atualização.
+    public async Task<string> RefreshYtDlpAsync(CancellationToken cancellationToken = default)
+    {
+        return await RefreshYtDlpCoreAsync(LocateYtDlp(), force: true, cancellationToken);
+    }
+
+    private async Task<string> RefreshYtDlpCoreAsync(string? fallback, bool force, CancellationToken cancellationToken)
+    {
         await _ytDlpGate.WaitAsync(cancellationToken);
         try
         {
-            existing = LocateYtDlp();
-            if (existing is not null) return existing;
+            fallback = LocateYtDlp() ?? fallback;
+            if (!force && fallback is not null && !ShouldRefreshYtDlp())
+                return fallback;
 
             var target = Path.Combine(_userToolsDir, "yt-dlp.exe");
-            var temp = target + ".download";
-            await DownloadFileAsync(YtDlpUrl, temp, TimeSpan.FromMinutes(4), cancellationToken);
-            File.Move(temp, target, true);
-            return target;
-        }
-        catch (Exception ex)
-        {
-            throw new InvalidOperationException(
-                "Não foi possível preparar o yt-dlp automaticamente. Verifique sua internet e tente novamente. " + ex.Message, ex);
+            var temp = Path.Combine(_userToolsDir, $"yt-dlp-refresh-{Guid.NewGuid():N}.exe");
+
+            try
+            {
+                await DownloadFileAsync(YtDlpUrl, temp, TimeSpan.FromMinutes(4), cancellationToken);
+
+                // Evita substituir um executável válido por uma resposta HTML/truncada.
+                if (!File.Exists(temp) || new FileInfo(temp).Length < 1_000_000)
+                    throw new InvalidOperationException("O arquivo recebido para o yt-dlp é inválido ou incompleto.");
+
+                try
+                {
+                    File.Move(temp, target, true);
+                    WriteYtDlpRefreshStamp();
+                    return target;
+                }
+                catch (IOException) when (fallback is not null)
+                {
+                    // Outro download pode estar executando a cópia atual no Windows.
+                    // A nova cópia ainda pode ser usada nesta tentativa e será limpa depois.
+                    WriteYtDlpRefreshStamp();
+                    return temp;
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                TryDeleteFile(temp);
+                throw;
+            }
+            catch (Exception ex)
+            {
+                TryDeleteFile(temp);
+                WriteYtDlpRefreshStamp();
+                if (fallback is not null)
+                    return fallback;
+
+                throw new InvalidOperationException(
+                    "Não foi possível preparar o yt-dlp automaticamente. Verifique sua internet e tente novamente. " + ex.Message, ex);
+            }
         }
         finally
         {
             _ytDlpGate.Release();
         }
+    }
+
+    private bool ShouldRefreshYtDlp()
+    {
+        try
+        {
+            if (!File.Exists(_ytDlpRefreshStamp)) return true;
+            return DateTime.UtcNow - File.GetLastWriteTimeUtc(_ytDlpRefreshStamp) >= YtDlpRefreshInterval;
+        }
+        catch
+        {
+            return true;
+        }
+    }
+
+    private void WriteYtDlpRefreshStamp()
+    {
+        try
+        {
+            File.WriteAllText(_ytDlpRefreshStamp, DateTimeOffset.UtcNow.ToString("O"));
+        }
+        catch { }
+    }
+
+    private void CleanupOldYtDlpRefreshFiles()
+    {
+        try
+        {
+            foreach (var file in Directory.EnumerateFiles(_userToolsDir, "yt-dlp-refresh-*.exe"))
+            {
+                try
+                {
+                    if (DateTime.UtcNow - File.GetLastWriteTimeUtc(file) > TimeSpan.FromDays(1))
+                        File.Delete(file);
+                }
+                catch { }
+            }
+        }
+        catch { }
     }
 
     public async Task<(string Ffmpeg, string? Ffprobe)> EnsureFfmpegAsync(CancellationToken cancellationToken = default)
