@@ -92,9 +92,6 @@ public sealed class DownloadItemJob
     public double Progress { get; set; }
     public string Speed { get; set; } = "";
     public string Eta { get; set; } = "";
-    public long DownloadedBytes { get; set; }
-    public long TotalBytes { get; set; }
-    public bool TotalBytesEstimated { get; set; }
     public string? Error { get; set; }
     public bool Duplicate { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;

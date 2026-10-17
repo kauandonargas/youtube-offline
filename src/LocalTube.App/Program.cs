@@ -29,13 +29,13 @@ internal static class Program
         builder.Services.AddSingleton<ToolManager>();
         builder.Services.AddSingleton<MediaTooling>();
         builder.Services.AddSingleton<MediaScanner>();
-        builder.Services.AddSingleton<DownloadService>();
+        builder.Services.AddSingleton<YtDlpService>();
         builder.Services.AddSingleton<UpdateService>();
 
         var app = builder.Build();
         var store = app.Services.GetRequiredService<LocalTubeStore>();
         var scanner = app.Services.GetRequiredService<MediaScanner>();
-        var downloader = app.Services.GetRequiredService<DownloadService>();
+        var downloader = app.Services.GetRequiredService<YtDlpService>();
         var updater = app.Services.GetRequiredService<UpdateService>();
         scanner.Scan();
 
@@ -256,6 +256,9 @@ internal static class Program
             app.StartAsync().GetAwaiter().GetResult();
             using var form = new MainForm(url);
 
+            // Atualização automática: depois que a janela abre, consulta o feed público.
+            // Se houver uma versão nova, baixa o instalador, valida SHA-256, inicia a
+            // instalação silenciosa e fecha esta instância. O instalador reabre o app.
             form.Shown += (_, _) =>
             {
                 _ = Task.Run(async () =>
@@ -265,11 +268,14 @@ internal static class Program
                         await Task.Delay(TimeSpan.FromSeconds(4));
                         var started = await updater.TryInstallAvailableUpdateAsync();
                         if (started && !form.IsDisposed)
+                        {
                             form.BeginInvoke(new Action(Application.Exit));
+                        }
                     }
                     catch
                     {
-                        // Falhas de atualização não impedem o uso offline.
+                        // Falhas de atualização não impedem o uso offline. O erro continua
+                        // disponível em Configurações > Atualizações para tentativa manual.
                     }
                 });
             };
