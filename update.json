@@ -1,16 +1,17 @@
 {
   "schemaVersion": 1,
   "product": "YouTube Offline",
-  "version": "0.5.8",
-  "publishedAt": "2026-10-17T07:07:44Z",
-  "installerUrl": "https://github.com/kauandonargas/youtube-offline/releases/download/v0.5.8/YouTube-Offline-Setup-0.5.8-x64.exe",
-  "sha256": "0dadeb75cdc63f516d6dd5ef5b0a023139456d86dbe0fe52a3240830d1a5a5b0",
+  "version": "0.5.9",
+  "publishedAt": "2026-10-17T07:19:46Z",
+  "installerUrl": "https://github.com/kauandonargas/youtube-offline/releases/download/v0.5.9/YouTube-Offline-Setup-0.5.9-x64.exe",
+  "sha256": "ccd72858f5ad470879c71378fab82c93fc7c134b83358a95a9214fed74fae787",
   "mandatory": false,
   "notes": [
-    "Mostra em tempo real quanto já foi transferido durante cada download (MB/GB).",
-    "Mostra o tamanho total do arquivo quando o YouTube informa o valor, ou o tamanho estimado quando só há estimativa.",
-    "Mantém velocidade, porcentagem e tempo restante junto com o tamanho transferido.",
-    "Em playlists, o tamanho exibido acompanha o arquivo/vídeo que está sendo transferido naquele momento, mantendo a playlist como uma única tarefa na fila.",
-    "A exibição usa unidades legíveis automaticamente, como MB e GB."
+    "Volta a exibir cada vídeo ou playlist como uma única tarefa simples na fila, sem o bloco interno redundante.",
+    "Mostra claramente se está na fila, preparando, baixando, cancelando, concluído ou com erro.",
+    "Durante o download mostra porcentagem, MB/GB transferidos, tamanho total ou estimado, velocidade e tempo restante.",
+    "Playlists continuam sendo baixadas por uma única execução do yt-dlp, como no fluxo antigo que funcionava.",
+    "O instalador volta a incluir yt-dlp e FFmpeg para o download começar imediatamente após instalar/atualizar.",
+    "O GitHub Actions passa a usar cache mensal dessas ferramentas para manter as próximas compilações rápidas."
   ]
 }
