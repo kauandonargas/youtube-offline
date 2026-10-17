@@ -256,9 +256,8 @@ internal static class Program
             app.StartAsync().GetAwaiter().GetResult();
             using var form = new MainForm(url);
 
-            // Atualização automática: depois que a janela abre, consulta o feed público.
-            // Se houver uma versão nova, baixa o instalador, valida SHA-256, inicia a
-            // instalação silenciosa e fecha esta instância. O instalador reabre o app.
+            // Apenas consultar o feed em segundo plano: o usuário decide quando
+            // instalar atualizações. Nunca feche a janela durante a verificação.
             form.Shown += (_, _) =>
             {
                 _ = Task.Run(async () =>
@@ -266,16 +265,11 @@ internal static class Program
                     try
                     {
                         await Task.Delay(TimeSpan.FromSeconds(4));
-                        var started = await updater.TryInstallAvailableUpdateAsync();
-                        if (started && !form.IsDisposed)
-                        {
-                            form.BeginInvoke(new Action(Application.Exit));
-                        }
+                        await updater.CheckAsync();
                     }
                     catch
                     {
-                        // Falhas de atualização não impedem o uso offline. O erro continua
-                        // disponível em Configurações > Atualizações para tentativa manual.
+                        // Sem rede ou com erro no feed, o aplicativo segue aberto.
                     }
                 });
             };
