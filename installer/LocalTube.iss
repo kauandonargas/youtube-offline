@@ -34,7 +34,12 @@ Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortugue
 Name: "desktopicon"; Description: "Criar atalho na area de trabalho"; GroupDescription: "Atalhos:"; Flags: unchecked
 
 [Files]
-Source: "..\dist\YouTubeOffline\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Arquivos do aplicativo são atualizados normalmente.
+; As ferramentas externas ficam fora desta regra porque podem estar executando
+; durante uma atualização. O próprio aplicativo mantém versões atualizáveis no
+; diretório de dados do usuário; a cópia em {app}\tools é apenas um seed inicial.
+Source: "..\dist\YouTubeOffline\*"; DestDir: "{app}"; Excludes: "tools\*"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\dist\YouTubeOffline\tools\*"; DestDir: "{app}\tools"; Flags: ignoreversion recursesubdirs createallsubdirs onlyifdoesntexist
 
 [Icons]
 Name: "{group}\YouTube Offline"; Filename: "{app}\{#MyAppExeName}"
