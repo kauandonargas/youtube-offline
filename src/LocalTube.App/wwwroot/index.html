@@ -7,6 +7,7 @@
   <title>YouTube Offline</title>
   <link rel="icon" href="/favicon.ico" sizes="any" />
   <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/downloads.css?v=0.5.13-ui1" />
 </head>
 <body>
   <header class="topbar">
@@ -75,13 +76,6 @@
 
   <div class="toast hidden" id="toast"></div>
   <script src="/app.js"></script>
-  <script>
-    if (!localStorage.getItem('youtubeOfflineRestore040')) {
-      localStorage.setItem('youtubeOfflineCookieBrowser', 'none');
-      if (typeof state !== 'undefined') state.downloadCookieBrowser = 'none';
-      localStorage.setItem('youtubeOfflineRestore040', '1');
-    }
-  </script>
-  <script src="/queue-fixes.js?v=0.5.13"></script>
+  <script src="/downloads.js?v=0.5.13-ui1"></script>
 </body>
 </html>

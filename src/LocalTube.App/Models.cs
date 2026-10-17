@@ -60,9 +60,10 @@ public sealed class MediaItem
     public DateTimeOffset? LastWatchedAt { get; set; }
 }
 
-// A download job represents one user action (one video or one playlist).
-// Playlist entries are materialized as separate child items so each can be
-// observed and cancelled independently.
+// A download job represents one user action: one video or one full playlist.
+// The v0.4-style engine executes a playlist in one yt-dlp process. Items stays as
+// a compatibility/progress surface for the current API, normally with one item
+// representing the active yt-dlp execution rather than one process per video.
 public sealed class DownloadJob
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
@@ -100,8 +101,9 @@ public sealed class DownloadItemJob
 public sealed class AnalyzeRequest
 {
     public string Url { get; set; } = "";
-    // auto = only use the local browser session if YouTube explicitly asks for verification.
-    public string CookieBrowser { get; set; } = "auto";
+    // Kept for API compatibility with the 0.5 UI. The restored v0.4 engine does
+    // not import browser cookies automatically.
+    public string CookieBrowser { get; set; } = "none";
 }
 
 public sealed class DownloadRequest
@@ -111,6 +113,6 @@ public sealed class DownloadRequest
     public string Quality { get; set; } = "best";
     public string AudioFormat { get; set; } = "original";
     public bool Playlist { get; set; }
-    // auto, none, edge, chrome, firefox or brave. Cookies are never copied into the app.
-    public string CookieBrowser { get; set; } = "auto";
+    // Kept for backward compatibility; ignored by the restored v0.4-style engine.
+    public string CookieBrowser { get; set; } = "none";
 }
