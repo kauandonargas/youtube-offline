@@ -26,4 +26,7 @@ if ($installer -notmatch 'Excludes:\s*"tools\\\*"') {
 if ($installer -notmatch 'DestDir:\s*"\{app\}\\tools".*onlyifdoesntexist') {
     throw 'O instalador pode voltar a sobrescrever ferramentas em uso.'
 }
+if ($installer -notmatch 'CloseApplicationsFilter=YouTubeOffline\.exe,\*\.dll') {
+    throw 'O Restart Manager pode voltar a tentar fechar o yt-dlp em uso.'
+}
 Write-Host 'Guardas de atualizacao inicial e preservacao de ferramentas passaram.'
