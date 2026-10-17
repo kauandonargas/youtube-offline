@@ -1,0 +1,141 @@
+name: Aplicar tamanho dos downloads
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/one-time-download-size.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Aplicar melhoria e criar versao 0.5.8
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          function Replace-Exact([string]$Path, [string]$Old, [string]$New) {
+            $text = Get-Content $Path -Raw
+            if (-not $text.Contains($Old)) { throw "Trecho esperado nao encontrado em $Path" }
+            $text = $text.Replace($Old, $New)
+            Set-Content -Path $Path -Value $text -Encoding utf8NoBOM
+          }
+
+          $downloadService = 'src/LocalTube.App/DownloadService.cs'
+          Replace-Exact $downloadService @'
+    private static readonly Regex ProgressRegex = new(@"download:\s*(?<pct>[0-9.]+)%\|(?<speed>[^|]*)\|(?<eta>.*)$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+'@ @'
+    private static readonly Regex ProgressRegex = new(@"download:\s*(?<pct>[0-9.]+)%\|(?<speed>[^|]*)\|(?<eta>[^|]*)\|(?<downloaded>[^|]*)\|(?<total>[^|]*)\|(?<estimated>.*)$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+'@
+
+          Replace-Exact $downloadService @'
+            "--progress-template", "download:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s",
+'@ @'
+            "--progress-template", "download:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s|%(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress.total_bytes_estimate)s",
+'@
+
+          Replace-Exact $downloadService @'
+                item.Speed = progress.Groups["speed"].Value.Trim();
+                item.Eta = progress.Groups["eta"].Value.Trim();
+'@ @'
+                item.Speed = progress.Groups["speed"].Value.Trim();
+                item.Eta = progress.Groups["eta"].Value.Trim();
+                item.DownloadedBytes = ParseProgressBytes(progress.Groups["downloaded"].Value);
+
+                var exactTotal = ParseProgressBytes(progress.Groups["total"].Value);
+                var estimatedTotal = ParseProgressBytes(progress.Groups["estimated"].Value);
+                if (exactTotal > 0)
+                {
+                    item.TotalBytes = exactTotal;
+                    item.TotalBytesEstimated = false;
+                }
+                else if (estimatedTotal > 0)
+                {
+                    item.TotalBytes = estimatedTotal;
+                    item.TotalBytesEstimated = true;
+                }
+'@
+
+          Replace-Exact $downloadService @'
+    private bool IsKnownSingleVideo(string sourceId)
+'@ @'
+    private static long ParseProgressBytes(string value)
+    {
+        var text = (value ?? "").Trim();
+        return long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var bytes) && bytes > 0
+            ? bytes
+            : 0;
+    }
+
+    private bool IsKnownSingleVideo(string sourceId)
+'@
+
+          $models = 'src/LocalTube.App/Models.cs'
+          Replace-Exact $models @'
+    public string Eta { get; set; } = "";
+    public string? Error { get; set; }
+'@ @'
+    public string Eta { get; set; } = "";
+    public long DownloadedBytes { get; set; }
+    public long TotalBytes { get; set; }
+    public bool TotalBytesEstimated { get; set; }
+    public string? Error { get; set; }
+'@
+
+          $queue = 'src/LocalTube.App/wwwroot/queue-fixes.js'
+          Replace-Exact $queue @'
+  function visibleBatchSummary(items) {
+'@ @'
+  function formatTransferBytes(bytes) {
+    let value = Number(bytes || 0);
+    if (!Number.isFinite(value) || value <= 0) return '';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let unit = 0;
+    while (value >= 1024 && unit < units.length - 1) {
+      value /= 1024;
+      unit++;
+    }
+    const digits = unit === 0 || value >= 100 ? 0 : 1;
+    return `${value.toFixed(digits)} ${units[unit]}`;
+  }
+
+  function visibleBatchSummary(items) {
+'@
+
+          Replace-Exact $queue @'
+              const detail = item.error || [item.speed, item.eta ? `restam ${item.eta}` : ''].filter(Boolean).join(' • ');
+'@ @'
+              const downloaded = formatTransferBytes(item.downloadedBytes);
+              const total = formatTransferBytes(item.totalBytes);
+              const sizeText = downloaded
+                ? (total ? `${downloaded} / ${item.totalBytesEstimated ? '≈ ' : ''}${total}` : `${downloaded} baixados`)
+                : (total ? `${item.totalBytesEstimated ? '≈ ' : ''}${total} total` : '');
+              const detail = item.error || [sizeText, item.speed, item.eta ? `restam ${item.eta}` : ''].filter(Boolean).join(' • ');
+'@
+
+          Replace-Exact 'src/LocalTube.App/LocalTube.App.csproj' '<Version>0.5.7</Version>' '<Version>0.5.8</Version>'
+          Set-Content -Path 'VERSION' -Value '0.5.8' -Encoding utf8NoBOM
+          @'
+# YouTube Offline 0.5.8
+
+- Mostra em tempo real quanto já foi transferido durante cada download (MB/GB).
+- Mostra o tamanho total do arquivo quando o YouTube informa o valor, ou o tamanho estimado quando só há estimativa.
+- Mantém velocidade, porcentagem e tempo restante junto com o tamanho transferido.
+- Em playlists, o tamanho exibido acompanha o arquivo/vídeo que está sendo transferido naquele momento, mantendo a playlist como uma única tarefa na fila.
+'@ | Set-Content -Path 'RELEASE_NOTES.md' -Encoding utf8NoBOM
+
+          git rm '.github/workflows/one-time-download-size.yml'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src VERSION RELEASE_NOTES.md
+          git commit -m 'YouTube Offline 0.5.8: mostra MB transferidos e tamanho do arquivo'
+          git push
