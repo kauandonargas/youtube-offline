@@ -1,17 +1,18 @@
 {
   "schemaVersion": 1,
   "product": "YouTube Offline",
-  "version": "0.5.9",
-  "publishedAt": "2026-10-17T07:19:46Z",
-  "installerUrl": "https://github.com/kauandonargas/youtube-offline/releases/download/v0.5.9/YouTube-Offline-Setup-0.5.9-x64.exe",
-  "sha256": "ccd72858f5ad470879c71378fab82c93fc7c134b83358a95a9214fed74fae787",
+  "version": "0.5.10",
+  "publishedAt": "2026-10-17T07:32:07Z",
+  "installerUrl": "https://github.com/kauandonargas/youtube-offline/releases/download/v0.5.10/YouTube-Offline-Setup-0.5.10-x64.exe",
+  "sha256": "01dac3b54b0950ce26bbca116b348bc06d99c34c0ed0bdd6337501374745cfb7",
   "mandatory": false,
   "notes": [
-    "Volta a exibir cada vídeo ou playlist como uma única tarefa simples na fila, sem o bloco interno redundante.",
-    "Mostra claramente se está na fila, preparando, baixando, cancelando, concluído ou com erro.",
-    "Durante o download mostra porcentagem, MB/GB transferidos, tamanho total ou estimado, velocidade e tempo restante.",
-    "Playlists continuam sendo baixadas por uma única execução do yt-dlp, como no fluxo antigo que funcionava.",
-    "O instalador volta a incluir yt-dlp e FFmpeg para o download começar imediatamente após instalar/atualizar.",
-    "O GitHub Actions passa a usar cache mensal dessas ferramentas para manter as próximas compilações rápidas."
+    "Corrige o motor de download e a interface ao mesmo tempo.",
+    "O download nao faz uma segunda analise do link antes de iniciar; se a analise da tela ja existe, ela e reaproveitada.",
+    "Playlists continuam como uma unica tarefa e uma unica execucao do yt-dlp.",
+    "Desativa totalmente o acesso automatico a cookies de navegadores.",
+    "A fila mostra claramente Preparando, Baixando agora, porcentagem, MB/GB, tamanho, velocidade e tempo restante.",
+    "Enquanto ainda nao chegaram bytes, a barra fica animada e informa que o yt-dlp esta conectado e aguardando dados do YouTube.",
+    "Em playlists, o titulo e o numero do video atual passam a ser atualizados pelo proprio progresso do yt-dlp."
   ]
 }
