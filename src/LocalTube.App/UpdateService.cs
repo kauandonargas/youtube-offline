@@ -115,17 +115,6 @@ public sealed class UpdateService
         return GetStatus();
     }
 
-    public async Task<bool> TryInstallAvailableUpdateAsync(CancellationToken cancellationToken = default)
-    {
-        // Esta chamada é usada pela inicialização do aplicativo. Ela deve apenas
-        // consultar o feed; instalar silenciosamente e chamar Application.Exit()
-        // poucos segundos depois de abrir a janela torna qualquer falha do
-        // instalador indistinguível de um crash. A instalação continua disponível
-        // explicitamente por DownloadInstallerAsync + LaunchInstaller.
-        await CheckAsync(cancellationToken);
-        return false;
-    }
-
     public async Task<string> DownloadInstallerAsync(CancellationToken cancellationToken = default)
     {
         UpdateFeed? feed;
