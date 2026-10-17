@@ -350,6 +350,9 @@ public sealed class YtDlpService
 
     private static bool IsPlaylist(JsonElement root)
     {
+        if (root.ValueKind != JsonValueKind.Object)
+            return false;
+
         if (root.TryGetProperty("_type", out var type) && type.ValueKind == JsonValueKind.String &&
             string.Equals(type.GetString(), "playlist", StringComparison.OrdinalIgnoreCase))
             return true;
@@ -360,7 +363,8 @@ public sealed class YtDlpService
     {
         var previews = new List<object>();
         var itemCount = 0;
-        if (root.TryGetProperty("entries", out var entries) && entries.ValueKind == JsonValueKind.Array)
+        if (root.ValueKind == JsonValueKind.Object &&
+            root.TryGetProperty("entries", out var entries) && entries.ValueKind == JsonValueKind.Array)
         {
             foreach (var entry in entries.EnumerateArray())
             {
@@ -393,26 +397,51 @@ public sealed class YtDlpService
     private static int[] ExtractHeights(JsonElement root)
     {
         var heights = new SortedSet<int>();
-        if (root.TryGetProperty("formats", out var formats) && formats.ValueKind == JsonValueKind.Array)
+        if (root.ValueKind == JsonValueKind.Object &&
+            root.TryGetProperty("formats", out var formats) && formats.ValueKind == JsonValueKind.Array)
         {
             foreach (var f in formats.EnumerateArray())
-                if (f.TryGetProperty("height", out var h) && h.TryGetInt32(out var hi) && hi > 0)
+            {
+                if (f.ValueKind == JsonValueKind.Object &&
+                    f.TryGetProperty("height", out var h) &&
+                    h.ValueKind == JsonValueKind.Number &&
+                    h.TryGetInt32(out var hi) && hi > 0)
+                {
                     heights.Add(hi);
+                }
+            }
         }
         return heights.Reverse().ToArray();
     }
 
-    private static string? GetString(JsonElement root, string name) =>
-        root.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() : null;
+    private static string? GetString(JsonElement root, string name)
+    {
+        if (root.ValueKind != JsonValueKind.Object)
+            return null;
 
-    private static double? GetDouble(JsonElement root, string name) =>
-        root.TryGetProperty(name, out var p) && p.TryGetDouble(out var value) ? value : null;
+        return root.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String
+            ? p.GetString()
+            : null;
+    }
+
+    private static double? GetDouble(JsonElement root, string name)
+    {
+        if (root.ValueKind != JsonValueKind.Object ||
+            !root.TryGetProperty(name, out var p) ||
+            p.ValueKind != JsonValueKind.Number)
+        {
+            return null;
+        }
+
+        return p.TryGetDouble(out var value) ? value : null;
+    }
 
     private static string? GetThumbnail(JsonElement root)
     {
         var direct = GetString(root, "thumbnail");
         if (!string.IsNullOrWhiteSpace(direct)) return direct;
-        if (root.TryGetProperty("thumbnails", out var thumbs) && thumbs.ValueKind == JsonValueKind.Array)
+        if (root.ValueKind == JsonValueKind.Object &&
+            root.TryGetProperty("thumbnails", out var thumbs) && thumbs.ValueKind == JsonValueKind.Array)
         {
             foreach (var t in thumbs.EnumerateArray().Reverse())
             {

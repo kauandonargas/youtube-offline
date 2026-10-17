@@ -1,9 +1,5 @@
-# YouTube Offline 0.5.14
+# YouTube Offline 0.5.15
 
-- Mantém o motor de playlists restaurado da v0.4: uma playlist inteira é processada por uma única execução do yt-dlp.
-- Substitui a tela de downloads remendada por uma interface dedicada e coerente com o funcionamento real do backend.
-- Remove o `queue-fixes.js` e as sobrescritas em runtime que dificultavam manutenção e diagnóstico.
-- Mostra playlists como uma única tarefa com progresso geral, vídeo atual, velocidade e ETA quando disponíveis.
-- Remove da interface o fluxo de cookies do navegador que não é usado pelo motor restaurado.
-- Impede iniciar um download usando uma análise antiga depois que o link foi alterado.
-- Alinha os modelos internos para não voltar ao desenho regressivo de um processo por vídeo da playlist.
+- Corrige a análise de playlists e vídeos quando o yt-dlp retorna campos JSON nulos, como `duration` ou `height`.
+- Evita a exceção `The requested operation requires an element of type 'Number', but the target element has type 'Null'.`
+- Torna a leitura dos metadados mais tolerante a entradas indisponíveis ou metadados incompletos sem alterar o motor de download restaurado da v0.4.
