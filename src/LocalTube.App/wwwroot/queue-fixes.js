@@ -135,15 +135,18 @@
 
   function taskSubtitle(item, job) {
     if (item.error) return item.error;
-    if (item.status === 'preparing') return 'Preparando o download e iniciando o yt-dlp…';
+    if (item.status === 'preparing') return 'Preparando o download…';
     if (item.status === 'queued') return 'Aguardando a tarefa anterior terminar.';
     if (item.status === 'downloading') {
-      if (Number(item.progress || 0) <= 0 && !Number(item.downloadedBytes || 0)) return 'Conectado ao yt-dlp • aguardando os primeiros dados do YouTube…';
+      if (Number(item.progress || 0) <= 0 && !Number(item.downloadedBytes || 0)) return 'Conectando ao YouTube…';
       if (job.isPlaylist) {
         const total = Number(item.playlistTotal || 0);
         const index = Number(item.playlistIndex || 0);
-        if (index > 0 && total > 0) return `Vídeo ${index} de ${total}`;
-        if (total > 0) return `Playlist com ${total} vídeos • conectando ao primeiro vídeo…`;
+        if (index > 0 && total > 0) {
+          const remaining = Math.max(0, total - index);
+          return `Vídeo ${index} de ${total} • ${remaining} ${remaining === 1 ? 'vídeo faltando' : 'vídeos faltando'}`;
+        }
+        if (total > 0) return `Playlist com ${total} vídeos`;
         return 'Playlist em andamento…';
       }
       return 'Download em andamento…';
@@ -200,11 +203,19 @@
           ? item.title
           : '';
         const cancellable = ['queued', 'preparing', 'downloading', 'cancelling'].includes(item.status);
+        const playlistTotal = Number(item.playlistTotal || 0);
+        const playlistIndex = Number(item.playlistIndex || 0);
+        const remaining = job.isPlaylist && playlistTotal > 0 && playlistIndex > 0
+          ? Math.max(0, playlistTotal - playlistIndex)
+          : null;
+        const remainingText = remaining === null
+          ? ''
+          : `${remaining} ${remaining === 1 ? 'vídeo faltando' : 'vídeos faltando'}`;
         const meta = [
           `<strong>${Math.round(progress)}%</strong>`,
           sizeText,
           item.speed || '',
-          item.eta ? `restam ${item.eta}` : ''
+          remainingText
         ].filter(Boolean).join('<span>•</span>');
 
         return `<article class="download-task">
@@ -242,9 +253,6 @@
     } catch { }
   };
 
-
-  // A tela acompanha o motor atual: playlist inteira = uma tarefa.
-  // A opcao antiga de cookies deixa de ser mostrada porque o motor volta a ser anonimo.
   const originalRenderDownloads0510 = renderDownloads;
   renderDownloads = function () {
     state.downloadCookieBrowser = 'none';
@@ -254,7 +262,7 @@
     $('.download-auth-field')?.remove();
 
     const hint = $('.download-hint');
-    if (hint) hint.textContent = 'O app evita downloads repetidos pelo ID original. Uma playlist inteira ocupa uma unica tarefa na fila.';
+    if (hint) hint.textContent = 'Cole uma playlist e baixe. O app evita repetir vídeos que já foram concluídos.';
 
     if (state.downloadAnalysis?.isPlaylist) {
       const detected = $('.playlist-detected');
@@ -262,7 +270,7 @@
         const strong = $('strong', detected);
         const text = $('span', detected);
         if (strong) strong.textContent = 'Playlist detectada.';
-        if (text) text.textContent = 'A playlist inteira sera baixada por uma unica execucao do yt-dlp.';
+        if (text) text.textContent = 'A playlist inteira será baixada como uma única tarefa.';
       }
       const start = $('#startDownload');
       if (start) start.textContent = 'Baixar playlist';
