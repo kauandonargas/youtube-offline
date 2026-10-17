@@ -30,6 +30,19 @@
     } catch { }
   }
 
+  function formatTransferBytes(bytes) {
+    let value = Number(bytes || 0);
+    if (!Number.isFinite(value) || value <= 0) return '';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let unit = 0;
+    while (value >= 1024 && unit < units.length - 1) {
+      value /= 1024;
+      unit++;
+    }
+    const digits = unit === 0 || value >= 100 ? 0 : 1;
+    return `${value.toFixed(digits)} ${units[unit]}`;
+  }
+
   function visibleBatchSummary(items) {
     const completed = items.filter(x => x.status === 'completed').length;
     const queued = items.filter(x => x.status === 'queued').length;
@@ -95,7 +108,12 @@
             ${items.map(item => {
               const cancellable = ['queued', 'preparing', 'downloading', 'cancelling'].includes(item.status);
               const index = item.playlistIndex > 0 ? `<span class="download-index">${String(item.playlistIndex).padStart(2, '0')}</span>` : '';
-              const detail = item.error || [item.speed, item.eta ? `restam ${item.eta}` : ''].filter(Boolean).join(' • ');
+              const downloaded = formatTransferBytes(item.downloadedBytes);
+              const total = formatTransferBytes(item.totalBytes);
+              const sizeText = downloaded
+                ? (total ? `${downloaded} / ${item.totalBytesEstimated ? '≈ ' : ''}${total}` : `${downloaded} baixados`)
+                : (total ? `${item.totalBytesEstimated ? '≈ ' : ''}${total} total` : '');
+              const detail = item.error || [sizeText, item.speed, item.eta ? `restam ${item.eta}` : ''].filter(Boolean).join(' • ');
               return `<div class="download-item ${escapeHtml(item.status)}">
                 ${index}
                 <div class="download-item-main">

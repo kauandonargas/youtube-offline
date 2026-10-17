@@ -1,6 +1,6 @@
-# YouTube Offline 0.5.7
+# YouTube Offline 0.5.8
 
-- Otimiza o processo de publicação para gerar atualizações muito mais rápido.
-- O instalador deixa de baixar e embutir yt-dlp e FFmpeg em toda nova versão.
-- yt-dlp e FFmpeg passam a ser preparados sob demanda em %LOCALAPPDATA%\YouTube Offline\tools e continuam disponíveis entre atualizações.
-- Mantém a correção do atualizador da 0.5.6 e o novo comportamento de playlists da 0.5.5.
+- Mostra em tempo real quanto já foi transferido durante cada download (MB/GB).
+- Mostra o tamanho total do arquivo quando o YouTube informa o valor, ou o tamanho estimado quando só há estimativa.
+- Mantém velocidade, porcentagem e tempo restante junto com o tamanho transferido.
+- Em playlists, o tamanho exibido acompanha o arquivo/vídeo que está sendo transferido naquele momento, mantendo a playlist como uma única tarefa na fila.

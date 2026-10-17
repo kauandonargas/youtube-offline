@@ -24,7 +24,7 @@ public sealed class DownloadService
     private readonly object _jobGate = new();
     private readonly string _archivePath;
 
-    private static readonly Regex ProgressRegex = new(@"download:\s*(?<pct>[0-9.]+)%\|(?<speed>[^|]*)\|(?<eta>.*)$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex ProgressRegex = new(@"download:\s*(?<pct>[0-9.]+)%\|(?<speed>[^|]*)\|(?<eta>[^|]*)\|(?<downloaded>[^|]*)\|(?<total>[^|]*)\|(?<estimated>.*)$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex PlaylistItemRegex = new(@"\[download\].*Downloading item\s+(?<index>\d+)\s+of\s+(?<total>\d+)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     private sealed record QueueEntry(
@@ -422,7 +422,7 @@ public sealed class DownloadService
             "--write-thumbnail",
             "--download-archive", _archivePath,
             "--no-overwrites",
-            "--progress-template", "download:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s",
+            "--progress-template", "download:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s|%(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress.total_bytes_estimate)s",
             "-o", output
         };
 
@@ -521,10 +521,32 @@ public sealed class DownloadService
 
                 item.Speed = progress.Groups["speed"].Value.Trim();
                 item.Eta = progress.Groups["eta"].Value.Trim();
+                item.DownloadedBytes = ParseProgressBytes(progress.Groups["downloaded"].Value);
+
+                var exactTotal = ParseProgressBytes(progress.Groups["total"].Value);
+                var estimatedTotal = ParseProgressBytes(progress.Groups["estimated"].Value);
+                if (exactTotal > 0)
+                {
+                    item.TotalBytes = exactTotal;
+                    item.TotalBytesEstimated = false;
+                }
+                else if (estimatedTotal > 0)
+                {
+                    item.TotalBytes = estimatedTotal;
+                    item.TotalBytesEstimated = true;
+                }
             }
         }
         catch (OperationCanceledException) { }
         catch (ObjectDisposedException) { }
+    }
+
+    private static long ParseProgressBytes(string value)
+    {
+        var text = (value ?? "").Trim();
+        return long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var bytes) && bytes > 0
+            ? bytes
+            : 0;
     }
 
     private bool IsKnownSingleVideo(string sourceId)
