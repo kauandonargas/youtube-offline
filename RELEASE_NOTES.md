@@ -1,6 +1,7 @@
-# YouTube Offline 0.5.4
+# YouTube Offline 0.5.5
 
-- Ao analisar um novo link, a fila deixa de acumular downloads antigos já concluídos, cancelados, ignorados ou com erro.
-- O botão de cancelar de cada item agora é um X compacto.
-- Ao clicar no X, o item some imediatamente da lista enquanto o cancelamento é enviado ao downloader.
-- Downloads que ainda estão realmente na fila ou em andamento continuam visíveis.
+- Playlists voltam a ocupar apenas um lugar na fila de downloads.
+- Cada playlist passa a ser processada por uma unica execucao do yt-dlp, evitando reabrir a playlist para cada video.
+- Mantem a fila entre videos e playlists, mas remove a fila interna por video dentro de uma playlist.
+- O modo automatico antigo deixa de acessar cookies de Chrome ou Edge; o comportamento padrao volta a ser anonimo.
+- O historico local de downloads continua evitando baixar novamente videos ja concluidos.
