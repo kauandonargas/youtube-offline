@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "product": "YouTube Offline",
+  "version": "0.5.3",
+  "publishedAt": "2026-10-17T06:09:52Z",
+  "installerUrl": "https://github.com/kauandonargas/youtube-offline/releases/download/v0.5.3/YouTube-Offline-Setup-0.5.3-x64.exe",
+  "sha256": "f29e68cdb653b0a1102c2b17a19369f3b55655adba87a4d888e5fbaa734b9f2f",
+  "mandatory": false,
+  "notes": [
+    "Simplifica a atualizacao automatica usando o proprio repositorio publico.",
+    "Remove a necessidade de GitHub CLI, token pessoal ou login no GitHub para atualizar.",
+    "O aplicativo consulta update.json, valida SHA-256 e instala a nova versao automaticamente.",
+    "Mantem a fila individual de downloads, cancelamento por video e prevencao de duplicatas."
+  ]
+}
