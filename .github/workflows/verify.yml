@@ -47,3 +47,34 @@ jobs:
           name: windows-startup-metrics
           path: ${{ runner.temp }}\startup-metrics.json
           if-no-files-found: ignore
+
+  installer-lock:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Baixar e conferir instalador publicado 0.5.18
+        shell: pwsh
+        run: |
+          $url = 'https://github.com/kauandonargas/youtube-offline/releases/download/v0.5.18/YouTube-Offline-Setup-0.5.18-x64.exe'
+          $exe = Join-Path $env:RUNNER_TEMP 'YouTube-Offline-Setup-0.5.18-x64.exe'
+          Invoke-WebRequest -Uri $url -OutFile $exe -MaximumRedirection 10
+          $actual = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne '187eda553c11d13d32449056555d115b0eafe2cad773ac00d07b1266394559d3') {
+            throw 'Checksum do instalador de referencia divergente.'
+          }
+
+      - name: Reinstalar com yt-dlp bloqueado
+        shell: pwsh
+        run: |
+          .\tests\verify-installer.ps1 -InstallerPath "$env:RUNNER_TEMP\YouTube-Offline-Setup-0.5.18-x64.exe" -WorkDir "$env:RUNNER_TEMP\installer-lock-test"
+
+      - name: Logs do Inno Setup
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-lock-logs
+          path: ${{ runner.temp }}\installer-lock-test\logs\*.log
+          if-no-files-found: ignore
