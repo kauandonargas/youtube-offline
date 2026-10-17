@@ -1,5 +1,6 @@
 param(
   [switch]$FrameworkDependent,
+  [switch]$EmbedTools,
   [string]$Version = ''
 )
 $ErrorActionPreference = 'Stop'
@@ -17,7 +18,6 @@ if (Test-Path $iconB64) {
   [IO.File]::WriteAllBytes($iconPath, $iconBytes)
   [IO.File]::WriteAllBytes($faviconPath, $iconBytes)
 }
-
 
 if ([string]::IsNullOrWhiteSpace($Version)) {
   $projectText = Get-Content $project -Raw
@@ -49,15 +49,25 @@ if (-not $FrameworkDependent) {
 & $dotnet @args
 if ($LASTEXITCODE -ne 0) { throw 'Falha no dotnet publish.' }
 
-$tools = Join-Path $out 'tools'
-New-Item -ItemType Directory -Path $tools -Force | Out-Null
-try {
-  & (Join-Path $PSScriptRoot 'fetch-tools.ps1') -TargetDir $tools
+# Nao embute yt-dlp/FFmpeg nas releases por padrao. Essas ferramentas ficam em
+# %LOCALAPPDATA%\YouTube Offline\tools, sao preparadas no primeiro download e
+# sobrevivem as atualizacoes do aplicativo. Isso reduz muito o tempo e o tamanho
+# de cada instalador. Use -EmbedTools apenas quando quiser um pacote totalmente
+# pre-carregado.
+if ($EmbedTools) {
+  $tools = Join-Path $out 'tools'
+  New-Item -ItemType Directory -Path $tools -Force | Out-Null
+  try {
+    & (Join-Path $PSScriptRoot 'fetch-tools.ps1') -TargetDir $tools
+  }
+  catch {
+    Write-Host 'Aviso: nao foi possivel embutir yt-dlp/FFmpeg no instalador.' -ForegroundColor Yellow
+    Write-Host $_.Exception.Message -ForegroundColor Yellow
+    Write-Host 'O aplicativo tentara prepara-los automaticamente no primeiro download.' -ForegroundColor Yellow
+  }
 }
-catch {
-  Write-Host 'Aviso: nao foi possivel embutir yt-dlp/FFmpeg no instalador.' -ForegroundColor Yellow
-  Write-Host $_.Exception.Message -ForegroundColor Yellow
-  Write-Host 'O aplicativo tentara prepara-los automaticamente no primeiro download.' -ForegroundColor Yellow
+else {
+  Write-Host 'Build rapido: yt-dlp/FFmpeg serao mantidos no perfil do usuario e preparados sob demanda.' -ForegroundColor Cyan
 }
 
 Write-Host "Build $Version concluido em: $out" -ForegroundColor Green

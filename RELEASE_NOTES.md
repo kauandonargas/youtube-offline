@@ -1,5 +1,6 @@
-# YouTube Offline 0.5.6
+# YouTube Offline 0.5.7
 
-- Corrige a atualização automática que falhava dizendo que o arquivo .download estava sendo usado por outro processo.
-- O arquivo temporário agora é fechado antes da validação SHA-256 e da troca para o instalador final.
-- Mantém a playlist como uma única tarefa na fila e preserva a proteção contra downloads repetidos.
+- Otimiza o processo de publicação para gerar atualizações muito mais rápido.
+- O instalador deixa de baixar e embutir yt-dlp e FFmpeg em toda nova versão.
+- yt-dlp e FFmpeg passam a ser preparados sob demanda em %LOCALAPPDATA%\YouTube Offline\tools e continuam disponíveis entre atualizações.
+- Mantém a correção do atualizador da 0.5.6 e o novo comportamento de playlists da 0.5.5.
