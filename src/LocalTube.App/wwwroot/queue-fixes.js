@@ -54,6 +54,15 @@
     }
     .download-task-progress {
       margin: 13px 0 8px;
+      overflow: hidden;
+    }
+    .download-task-progress.pending span {
+      width: 34% !important;
+      animation: download-pulse 1.15s ease-in-out infinite alternate;
+    }
+    @keyframes download-pulse {
+      from { transform: translateX(-25%); opacity: .45; }
+      to { transform: translateX(225%); opacity: 1; }
     }
     .download-task-meta {
       display: flex;
@@ -126,9 +135,10 @@
 
   function taskSubtitle(item, job) {
     if (item.error) return item.error;
-    if (item.status === 'preparing') return 'Verificando ferramentas e iniciando a conexão com o YouTube…';
+    if (item.status === 'preparing') return 'Preparando o download e iniciando o yt-dlp…';
     if (item.status === 'queued') return 'Aguardando a tarefa anterior terminar.';
     if (item.status === 'downloading') {
+      if (Number(item.progress || 0) <= 0 && !Number(item.downloadedBytes || 0)) return 'Conectado ao yt-dlp • aguardando os primeiros dados do YouTube…';
       if (job.isPlaylist) {
         const total = Number(item.playlistTotal || 0);
         const index = Number(item.playlistIndex || 0);
@@ -205,7 +215,7 @@
                 <span class="download-task-status ${escapeHtml(item.status)}">${escapeHtml(statusText(item, job))}</span>
               </div>
               ${currentTitle ? `<div class="download-task-current" title="${escapeHtml(currentTitle)}">${escapeHtml(currentTitle)}</div>` : ''}
-              <div class="bar download-task-progress"><span style="width:${progress}%"></span></div>
+              <div class="bar download-task-progress${(item.status === 'preparing' || (item.status === 'downloading' && progress <= 0)) ? ' pending' : ''}"><span style="width:${progress}%"></span></div>
               <div class="download-task-meta ${item.error ? 'download-task-error' : ''}">
                 ${meta || '<span>0%</span>'}
                 ${subtitle ? `<span>•</span><span>${escapeHtml(subtitle)}</span>` : ''}
@@ -231,4 +241,32 @@
       }
     } catch { }
   };
+
+
+  // A tela acompanha o motor atual: playlist inteira = uma tarefa.
+  // A opcao antiga de cookies deixa de ser mostrada porque o motor volta a ser anonimo.
+  const originalRenderDownloads0510 = renderDownloads;
+  renderDownloads = function () {
+    state.downloadCookieBrowser = 'none';
+    localStorage.setItem('youtubeOfflineCookieBrowser', 'none');
+    originalRenderDownloads0510();
+
+    $('.download-auth-field')?.remove();
+
+    const hint = $('.download-hint');
+    if (hint) hint.textContent = 'O app evita downloads repetidos pelo ID original. Uma playlist inteira ocupa uma unica tarefa na fila.';
+
+    if (state.downloadAnalysis?.isPlaylist) {
+      const detected = $('.playlist-detected');
+      if (detected) {
+        const strong = $('strong', detected);
+        const text = $('span', detected);
+        if (strong) strong.textContent = 'Playlist detectada.';
+        if (text) text.textContent = 'A playlist inteira sera baixada por uma unica execucao do yt-dlp.';
+      }
+      const start = $('#startDownload');
+      if (start) start.textContent = 'Baixar playlist';
+    }
+  };
+
 })();

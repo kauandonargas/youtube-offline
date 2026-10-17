@@ -1,8 +1,9 @@
-# YouTube Offline 0.5.9
+# YouTube Offline 0.5.10
 
-- Volta a exibir cada vídeo ou playlist como uma única tarefa simples na fila, sem o bloco interno redundante.
-- Mostra claramente se está na fila, preparando, baixando, cancelando, concluído ou com erro.
-- Durante o download mostra porcentagem, MB/GB transferidos, tamanho total ou estimado, velocidade e tempo restante.
-- Playlists continuam sendo baixadas por uma única execução do yt-dlp, como no fluxo antigo que funcionava.
-- O instalador volta a incluir yt-dlp e FFmpeg para o download começar imediatamente após instalar/atualizar.
-- O GitHub Actions passa a usar cache mensal dessas ferramentas para manter as próximas compilações rápidas.
+- Corrige o motor de download e a interface ao mesmo tempo.
+- O download nao faz uma segunda analise do link antes de iniciar; se a analise da tela ja existe, ela e reaproveitada.
+- Playlists continuam como uma unica tarefa e uma unica execucao do yt-dlp.
+- Desativa totalmente o acesso automatico a cookies de navegadores.
+- A fila mostra claramente Preparando, Baixando agora, porcentagem, MB/GB, tamanho, velocidade e tempo restante.
+- Enquanto ainda nao chegaram bytes, a barra fica animada e informa que o yt-dlp esta conectado e aguardando dados do YouTube.
+- Em playlists, o titulo e o numero do video atual passam a ser atualizados pelo proprio progresso do yt-dlp.

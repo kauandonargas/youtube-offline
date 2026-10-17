@@ -24,7 +24,7 @@ public sealed class DownloadService
     private readonly object _jobGate = new();
     private readonly string _archivePath;
 
-    private static readonly Regex ProgressRegex = new(@"download:\s*(?<pct>[0-9.]+)%\|(?<speed>[^|]*)\|(?<eta>[^|]*)\|(?<downloaded>[^|]*)\|(?<total>[^|]*)\|(?<estimated>.*)$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex ProgressRegex = new(@"download:\s*(?<pct>[0-9.]+)%\|(?<speed>[^|]*)\|(?<eta>[^|]*)\|(?<downloaded>[^|]*)\|(?<total>[^|]*)\|(?<estimated>[^|]*)\|(?<playlistIndex>[^|]*)\|(?<playlistTotal>[^|]*)\|(?<title>.*)$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex PlaylistItemRegex = new(@"\[download\].*Downloading item\s+(?<index>\d+)\s+of\s+(?<total>\d+)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     private sealed record QueueEntry(
@@ -113,10 +113,12 @@ public sealed class DownloadService
         var key = NormalizeUrl(req.Url);
         var browser = NormalizeCookieMode(req.CookieBrowser);
 
+        // Se a tela ja analisou o link, reaproveita o resultado. Caso contrario,
+        // inicia o download diretamente sem fazer uma segunda consulta ao YouTube.
         if (!_analysisCache.TryRemove(key, out var analysis))
-            analysis = await AnalyzeSourceAsync(req.Url, browser);
+            analysis = CreateDirectAnalysis(req.Url, req.Playlist);
 
-        var isPlaylist = analysis.IsPlaylist || req.Playlist;
+        var isPlaylist = analysis.IsPlaylist || req.Playlist || IsLikelyPlaylistUrl(req.Url);
 
         if (isPlaylist)
         {
@@ -259,13 +261,8 @@ public sealed class DownloadService
             var args = BuildArgs(entry.Request, ffmpeg, entry.Url, entry.IsPlaylist, entry.PlaylistTitle);
             var attempt = await RunDownloadAttemptAsync(tool, args, item, entry.IsPlaylist, entry.PlaylistCount, cts.Token);
 
-            // Nao existe mais fallback automatico para Chrome/Edge. Cookies so sao
-            // usados quando o usuario escolhe explicitamente um navegador.
-            if (attempt.ExitCode != 0 && IsBotChallenge(attempt.Error) && IsExplicitBrowser(entry.Request.CookieBrowser))
-            {
-                var withCookies = WithBrowserCookies(args, entry.Request.CookieBrowser);
-                attempt = await RunDownloadAttemptAsync(tool, withCookies, item, entry.IsPlaylist, entry.PlaylistCount, cts.Token);
-            }
+            // Uma unica tentativa anonima, como no fluxo antigo que funcionava.
+            // Nao acessa bancos de cookies do Chrome/Edge automaticamente.
 
             if (attempt.ExitCode != 0)
                 throw new InvalidOperationException(CleanError(attempt.Error));
@@ -404,6 +401,59 @@ public sealed class DownloadService
         };
     }
 
+    private static SourceAnalysis CreateDirectAnalysis(string url, bool requestedPlaylist)
+    {
+        var isPlaylist = requestedPlaylist || IsLikelyPlaylistUrl(url);
+        var sourceId = isPlaylist
+            ? TryGetQueryValue(url, "list") ?? NormalizeUrl(url)
+            : TryExtractYoutubeVideoId(url) ?? NormalizeUrl(url);
+
+        return new SourceAnalysis
+        {
+            IsPlaylist = isPlaylist,
+            Title = isPlaylist ? "Playlist" : "Video",
+            SourceId = sourceId,
+            Entries = new List<SourceEntry>()
+        };
+    }
+
+    private static bool IsLikelyPlaylistUrl(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) return false;
+        if (uri.AbsolutePath.Contains("/playlist", StringComparison.OrdinalIgnoreCase)) return true;
+        return !string.IsNullOrWhiteSpace(TryGetQueryValue(url, "list"));
+    }
+
+    private static string? TryExtractYoutubeVideoId(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) return null;
+        var host = uri.Host.ToLowerInvariant();
+        if (host.EndsWith("youtu.be", StringComparison.OrdinalIgnoreCase))
+            return uri.AbsolutePath.Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+
+        var fromQuery = TryGetQueryValue(url, "v");
+        if (!string.IsNullOrWhiteSpace(fromQuery)) return fromQuery;
+
+        var parts = uri.AbsolutePath.Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length >= 2 && parts[0].Equals("shorts", StringComparison.OrdinalIgnoreCase)) return parts[1];
+        if (parts.Length >= 2 && parts[0].Equals("live", StringComparison.OrdinalIgnoreCase)) return parts[1];
+        if (parts.Length >= 2 && parts[0].Equals("embed", StringComparison.OrdinalIgnoreCase)) return parts[1];
+        return null;
+    }
+
+    private static string? TryGetQueryValue(string url, string name)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) return null;
+        foreach (var part in uri.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var pair = part.Split('=', 2);
+            if (pair.Length == 0 || !pair[0].Equals(name, StringComparison.OrdinalIgnoreCase)) continue;
+            if (pair.Length == 1) return "";
+            return Uri.UnescapeDataString(pair[1].Replace('+', ' '));
+        }
+        return null;
+    }
+
     private List<string> BuildArgs(DownloadRequest req, string? ffmpeg, string url, bool isPlaylist, string playlistTitle)
     {
         var output = isPlaylist
@@ -422,7 +472,7 @@ public sealed class DownloadService
             "--write-thumbnail",
             "--download-archive", _archivePath,
             "--no-overwrites",
-            "--progress-template", "download:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s|%(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress.total_bytes_estimate)s",
+            "--progress-template", "download:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s|%(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress.total_bytes_estimate)s|%(info.playlist_index)s|%(info.playlist_count)s|%(info.title)s",
             "-o", output
         };
 
@@ -535,6 +585,18 @@ public sealed class DownloadService
                     item.TotalBytes = estimatedTotal;
                     item.TotalBytesEstimated = true;
                 }
+
+                if (isPlaylist)
+                {
+                    if (int.TryParse(progress.Groups["playlistIndex"].Value.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var pi) && pi > 0)
+                        item.PlaylistIndex = pi;
+                    if (int.TryParse(progress.Groups["playlistTotal"].Value.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var pt) && pt > 0)
+                        item.PlaylistTotal = pt;
+                }
+
+                var currentTitle = progress.Groups["title"].Value.Trim();
+                if (!string.IsNullOrWhiteSpace(currentTitle) && !currentTitle.Equals("NA", StringComparison.OrdinalIgnoreCase))
+                    item.Title = currentTitle;
             }
         }
         catch (OperationCanceledException) { }
@@ -681,10 +743,9 @@ public sealed class DownloadService
 
     private static string NormalizeCookieMode(string? requested)
     {
-        var mode = (requested ?? "none").Trim().ToLowerInvariant();
-        // Compatibilidade com instalacoes anteriores: "auto" agora significa anonimo.
-        // Isso impede acesso automatico aos bancos de cookies de Chrome/Edge.
-        return mode is "edge" or "chrome" or "firefox" or "brave" ? mode : "none";
+        // 0.5.10: volta ao comportamento anonimo simples. Nenhuma sessao do navegador
+        // e lida automaticamente pelo aplicativo.
+        return "none";
     }
 
     private static bool IsExplicitBrowser(string? mode) =>
