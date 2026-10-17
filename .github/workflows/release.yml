@@ -74,6 +74,21 @@ jobs:
           YOUTUBE_OFFLINE_TOOL_CACHE: ${{ runner.temp }}\youtube-offline-tools
         run: .\scripts\build-installer.ps1 -Version '${{ steps.version.outputs.version }}' -NoOpen
 
+      - name: Testar instalacao e atualizacao com ferramenta bloqueada
+        shell: pwsh
+        run: |
+          $version = '${{ steps.version.outputs.version }}'
+          $installer = "dist/installer/YouTube-Offline-Setup-$version-x64.exe"
+          .\tests\verify-installer.ps1 -InstallerPath $installer -WorkDir "$env:RUNNER_TEMP\installer-lock-test"
+
+      - name: Anexar logs do teste de instalacao
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-lock-logs
+          path: ${{ runner.temp }}\installer-lock-test\logs\*.log
+          if-no-files-found: ignore
+
       - name: Calcular SHA-256
         id: hash
         shell: pwsh
