@@ -73,7 +73,11 @@ jobs:
       - name: Reinstalar com yt-dlp bloqueado
         shell: pwsh
         run: |
-          .\tests\verify-installer.ps1 -InstallerPath ".\dist\installer\YouTube-Offline-Setup-0.5.18-x64.exe" -WorkDir "$env:RUNNER_TEMP\installer-lock-test"
+          $text = Get-Content .\src\LocalTube.App\LocalTube.App.csproj -Raw
+          $version = [regex]::Match($text, '<Version>([^<]+)</Version>').Groups[1].Value
+          if (-not $version) { throw 'Versao ausente.' }
+          $installer = ".\dist\installer\YouTube-Offline-Setup-$version-x64.exe"
+          .\tests\verify-installer.ps1 -InstallerPath $installer -WorkDir "$env:RUNNER_TEMP\installer-lock-test"
 
       - name: Logs do Inno Setup
         if: always()
