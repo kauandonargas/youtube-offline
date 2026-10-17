@@ -7,9 +7,9 @@ using System.Text.RegularExpressions;
 
 namespace LocalTube;
 
-// Downloader restaurado a partir do fluxo usado no YouTube Offline v0.4.0.
-// A regra principal e a mesma daquela versao: uma playlist inteira e entregue
-// ao yt-dlp em uma unica execucao, em vez de abrir um processo por video.
+// Orquestra o yt-dlp mantendo uma única execução por ação do usuário.
+// Playlists são percorridas pelo próprio yt-dlp, o que reduz extrações repetidas
+// e mantém o estado da sessão dentro do mesmo processo.
 public sealed class YtDlpService
 {
     private readonly LocalTubeStore _store;
@@ -32,16 +32,17 @@ public sealed class YtDlpService
     public IReadOnlyCollection<DownloadJob> Jobs => _jobs.Values.OrderByDescending(x => x.CreatedAt).ToArray();
     public object GetToolStatus() => _tools.GetStatus();
 
-    // cookieBrowser existe apenas para manter compatibilidade com a interface atual.
-    // O fluxo restaurado da v0.4.0 nao injeta cookies nem faz retentativas por navegador.
+    // cookieBrowser permanece na assinatura por compatibilidade com a API existente.
     public async Task<object> AnalyzeAsync(string url, string cookieBrowser = "none")
     {
         ValidateUrl(url);
         var tool = await _tools.EnsureYtDlpAsync();
+        var deno = await _tools.EnsureDenoAsync();
 
-        // Fluxo original da v0.4.0: primeiro uma leitura flat para descobrir playlist.
         var flat = await RunCaptureAsync(tool, new[]
         {
+            "--ignore-config",
+            "--js-runtimes", $"deno:{deno}",
             "--dump-single-json", "--flat-playlist", "--no-warnings", "--no-colors", url
         }, TimeSpan.FromSeconds(120));
         if (flat.ExitCode != 0)
@@ -52,9 +53,10 @@ public sealed class YtDlpService
         if (IsPlaylist(flatRoot))
             return BuildPlaylistAnalysis(flatRoot);
 
-        // Video individual: inspecao completa para listar qualidades reais.
         var result = await RunCaptureAsync(tool, new[]
         {
+            "--ignore-config",
+            "--js-runtimes", $"deno:{deno}",
             "-J", "--no-playlist", "--no-warnings", "--no-colors", url
         }, TimeSpan.FromSeconds(120));
         if (result.ExitCode != 0)
@@ -76,8 +78,6 @@ public sealed class YtDlpService
         };
     }
 
-    // Mantem a assinatura async usada pela interface atual, mas inicia exatamente
-    // o modelo de uma execucao por acao que existia na v0.4.0.
     public Task<DownloadJob> StartAsync(DownloadRequest req)
     {
         return Task.FromResult(Start(req));
@@ -96,8 +96,6 @@ public sealed class YtDlpService
             TotalItems = 1
         };
 
-        // A interface atual espera itens filhos. Para nao mudar o motor restaurado,
-        // existe apenas um item visual representando a execucao inteira do yt-dlp.
         var item = new DownloadItemJob
         {
             BatchId = job.Id,
@@ -145,9 +143,10 @@ public sealed class YtDlpService
         {
             item.Status = "preparing";
             job.Status = "preparing";
-            var tool = await _tools.EnsureYtDlpAsync(cts.Token);
 
-            // Igual a v0.4.0: merge de video e conversoes de audio usam FFmpeg.
+            var tool = await _tools.EnsureYtDlpAsync(cts.Token);
+            var deno = await _tools.EnsureDenoAsync(cts.Token);
+
             string? ffmpeg = null;
             if (!string.Equals(req.Mode, "audio", StringComparison.OrdinalIgnoreCase) ||
                 !string.Equals(req.AudioFormat, "original", StringComparison.OrdinalIgnoreCase))
@@ -160,40 +159,40 @@ public sealed class YtDlpService
             item.Error = null;
             job.Status = "downloading";
 
-            var args = BuildArgs(req, ffmpeg);
-            var psi = new ProcessStartInfo(tool)
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                WorkingDirectory = _store.Settings.LibraryFolder
-            };
-            foreach (var arg in args) psi.ArgumentList.Add(arg);
+            var args = BuildArgs(req, ffmpeg, deno);
+            var result = await RunDownloadProcessAsync(tool, args, job, item, cts.Token);
 
-            using var process = new Process { StartInfo = psi, EnableRaisingEvents = true };
-            process.Start();
-            _activeProcesses[item.Id] = process;
-
-            var stdoutTask = ConsumeAsync(process.StandardOutput, job, item);
-            var stderr = new StringBuilder();
-            var stderrTask = ConsumeAsync(process.StandardError, job, item, stderr);
-
-            try
+            // URLs de mídia do YouTube são assinadas e podem ser invalidadas durante
+            // a sessão. Em 403, atualizamos o extrator e fazemos uma única nova
+            // extração. O yt-dlp continua arquivos .part quando possível.
+            if (result.ExitCode != 0 && IsHttp403(result.Error))
             {
-                await process.WaitForExitAsync(cts.Token);
-            }
-            catch (OperationCanceledException)
-            {
-                TryKill(process);
-                try { await process.WaitForExitAsync(); } catch { }
-                throw;
+                item.Speed = "";
+                item.Eta = "";
+                item.Error = "HTTP 403 recebido. Renovando o mecanismo e tentando novamente...";
+                item.Status = "preparing";
+                job.Status = "preparing";
+
+                tool = await _tools.RefreshYtDlpAsync(cts.Token);
+                cts.Token.ThrowIfCancellationRequested();
+
+                item.Status = "downloading";
+                job.Status = "downloading";
+                args = BuildArgs(req, ffmpeg, deno);
+                result = await RunDownloadProcessAsync(tool, args, job, item, cts.Token);
             }
 
-            await Task.WhenAll(stdoutTask, stderrTask);
+            if (result.ExitCode != 0)
+            {
+                if (IsHttp403(result.Error))
+                {
+                    throw new InvalidOperationException(
+                        "O YouTube recusou a URL de mídia (HTTP 403) mesmo após renovar o yt-dlp e reextrair o link. " +
+                        "Tente novamente em alguns minutos; se ocorrer somente neste vídeo, ele pode exigir autenticação ou estar temporariamente restrito.");
+                }
 
-            if (process.ExitCode != 0)
-                throw new InvalidOperationException(CleanError(stderr.ToString()));
+                throw new InvalidOperationException(CleanError(result.Error));
+            }
 
             item.Progress = 100;
             item.Status = "completed";
@@ -240,8 +239,51 @@ public sealed class YtDlpService
         }
     }
 
-    // Esta funcao replica a construcao de argumentos da v0.4.0.
-    private List<string> BuildArgs(DownloadRequest req, string? ffmpeg)
+    private async Task<(int ExitCode, string Error)> RunDownloadProcessAsync(
+        string tool,
+        IReadOnlyList<string> args,
+        DownloadJob job,
+        DownloadItemJob item,
+        CancellationToken cancellationToken)
+    {
+        var psi = new ProcessStartInfo(tool)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WorkingDirectory = _store.Settings.LibraryFolder
+        };
+        foreach (var arg in args) psi.ArgumentList.Add(arg);
+
+        using var process = new Process { StartInfo = psi, EnableRaisingEvents = true };
+        process.Start();
+        _activeProcesses[item.Id] = process;
+
+        var stdoutTask = ConsumeAsync(process.StandardOutput, job, item);
+        var stderr = new StringBuilder();
+        var stderrTask = ConsumeAsync(process.StandardError, job, item, stderr);
+
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            TryKill(process);
+            try { await process.WaitForExitAsync(); } catch { }
+            throw;
+        }
+        finally
+        {
+            _activeProcesses.TryRemove(item.Id, out _);
+        }
+
+        await Task.WhenAll(stdoutTask, stderrTask);
+        return (process.ExitCode, stderr.ToString());
+    }
+
+    private List<string> BuildArgs(DownloadRequest req, string? ffmpeg, string deno)
     {
         var output = req.Playlist
             ? Path.Combine(_store.Settings.LibraryFolder, "%(playlist_title)s", "%(playlist_index)03d - %(title)s [%(id)s].%(ext)s")
@@ -249,7 +291,12 @@ public sealed class YtDlpService
 
         var args = new List<string>
         {
+            "--ignore-config",
             "--no-colors", "--newline", "--windows-filenames",
+            "--js-runtimes", $"deno:{deno}",
+            "--retries", "10",
+            "--fragment-retries", "10",
+            "--socket-timeout", "30",
             "--write-info-json", "--write-thumbnail",
             "--progress-template", "download:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s",
             "-o", output
@@ -264,7 +311,6 @@ public sealed class YtDlpService
         if (req.Playlist)
         {
             args.Add("--yes-playlist");
-            // Um video privado/removido nao deve abortar a playlist inteira.
             args.Add("--ignore-errors");
             args.Add("--continue");
         }
@@ -301,7 +347,6 @@ public sealed class YtDlpService
             args.Add("mp4");
         }
 
-        // Uma unica URL original. Para playlist, o proprio yt-dlp percorre todos os itens.
         args.Add(req.Url);
         return args;
     }
@@ -347,6 +392,11 @@ public sealed class YtDlpService
             }
         }
     }
+
+    private static bool IsHttp403(string error) =>
+        error.Contains("HTTP Error 403", StringComparison.OrdinalIgnoreCase) ||
+        error.Contains("403: Forbidden", StringComparison.OrdinalIgnoreCase) ||
+        error.Contains("403 Forbidden", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsPlaylist(JsonElement root)
     {

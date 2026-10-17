@@ -49,9 +49,8 @@ if (-not $FrameworkDependent) {
 & $dotnet @args
 if ($LASTEXITCODE -ne 0) { throw 'Falha no dotnet publish.' }
 
-# Releases oficiais voltam a incluir yt-dlp e FFmpeg para que o primeiro download
-# comece imediatamente, como nas primeiras versoes do aplicativo. No CI, as
-# ferramentas sao mantidas em cache entre builds para evitar baixa-las de novo.
+# O pacote oficial inclui todas as ferramentas necessárias para que a extração
+# do YouTube não dependa de instalações externas no computador do usuário.
 $shouldEmbedTools = $EmbedTools -or ($env:YOUTUBE_OFFLINE_EMBED_TOOLS -eq '1')
 if ($shouldEmbedTools) {
   $tools = Join-Path $out 'tools'
@@ -68,18 +67,19 @@ if ($shouldEmbedTools) {
     $toolsFull = [IO.Path]::GetFullPath($tools).TrimEnd('\')
     if (-not $cacheFull.Equals($toolsFull, [StringComparison]::OrdinalIgnoreCase)) {
       Copy-Item (Join-Path $cacheDir 'yt-dlp.exe') (Join-Path $tools 'yt-dlp.exe') -Force
+      Copy-Item (Join-Path $cacheDir 'deno.exe') (Join-Path $tools 'deno.exe') -Force
       Copy-Item (Join-Path $cacheDir 'ffmpeg.exe') (Join-Path $tools 'ffmpeg.exe') -Force
       Copy-Item (Join-Path $cacheDir 'ffprobe.exe') (Join-Path $tools 'ffprobe.exe') -Force
     }
 
-    foreach ($required in @('yt-dlp.exe','ffmpeg.exe','ffprobe.exe')) {
+    foreach ($required in @('yt-dlp.exe','deno.exe','ffmpeg.exe','ffprobe.exe')) {
       if (-not (Test-Path (Join-Path $tools $required))) { throw "$required nao foi incluido no build." }
     }
-    Write-Host 'yt-dlp e FFmpeg incluidos no instalador.' -ForegroundColor Green
+    Write-Host 'yt-dlp, Deno e FFmpeg incluidos no instalador.' -ForegroundColor Green
   }
   catch {
     if ($env:YOUTUBE_OFFLINE_EMBED_TOOLS -eq '1') { throw }
-    Write-Host 'Aviso: nao foi possivel embutir yt-dlp/FFmpeg no instalador.' -ForegroundColor Yellow
+    Write-Host 'Aviso: nao foi possivel embutir todas as ferramentas no instalador.' -ForegroundColor Yellow
     Write-Host $_.Exception.Message -ForegroundColor Yellow
   }
 }
