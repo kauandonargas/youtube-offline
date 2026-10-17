@@ -1,16 +1,18 @@
 {
   "schemaVersion": 1,
   "product": "YouTube Offline",
-  "version": "0.5.13",
-  "publishedAt": "2026-10-17T08:06:54Z",
-  "installerUrl": "https://github.com/kauandonargas/youtube-offline/releases/download/v0.5.13/YouTube-Offline-Setup-0.5.13-x64.exe",
-  "sha256": "0d6abbfeb0e8f627b2fb9c40a11c8095a397cbd4000ddaca065afd2910b9127d",
+  "version": "0.5.14",
+  "publishedAt": "2026-10-17T14:50:20Z",
+  "installerUrl": "https://github.com/kauandonargas/youtube-offline/releases/download/v0.5.14/YouTube-Offline-Setup-0.5.14-x64.exe",
+  "sha256": "ea73aac92138631288732709bf1d3951627d328147b3c5f852b584cdb033cbf4",
   "mandatory": false,
   "notes": [
-    "Restaura o fluxo de download da versão 0.4.0, recuperado do arquivo original `YouTube-Offline-v0.4.0.zip` criado antes das regressões posteriores.",
-    "Playlist volta a ser entregue ao yt-dlp em uma única execução com `--yes-playlist`, `--ignore-errors` e `--continue`.",
-    "Remove do motor restaurado a divisão da playlist em uma tarefa/processo por vídeo e as retentativas automáticas com cookies do navegador.",
-    "A análise volta a usar primeiro `--dump-single-json --flat-playlist` e só faz inspeção completa para vídeo individual.",
-    "Mantém apenas a camada atual de interface, instalador e atualização automática ao redor do motor antigo."
+    "Mantém o motor de playlists restaurado da v0.4: uma playlist inteira é processada por uma única execução do yt-dlp.",
+    "Substitui a tela de downloads remendada por uma interface dedicada e coerente com o funcionamento real do backend.",
+    "Remove o `queue-fixes.js` e as sobrescritas em runtime que dificultavam manutenção e diagnóstico.",
+    "Mostra playlists como uma única tarefa com progresso geral, vídeo atual, velocidade e ETA quando disponíveis.",
+    "Remove da interface o fluxo de cookies do navegador que não é usado pelo motor restaurado.",
+    "Impede iniciar um download usando uma análise antiga depois que o link foi alterado.",
+    "Alinha os modelos internos para não voltar ao desenho regressivo de um processo por vídeo da playlist."
   ]
 }
