@@ -1,7 +1,8 @@
-# YouTube Offline 0.5.18
+# YouTube Offline 0.5.19
 
-- Corrige o erro do instalador `DeleteFile failed; código 5. Acesso negado` ao atualizar com `yt-dlp.exe`, Deno ou FFmpeg ainda em uso.
-- As ferramentas externas passam a ser tratadas como seed de primeira instalação: em atualizações, o instalador não tenta sobrescrever executáveis já existentes em `tools`.
-- O yt-dlp operacional continua sendo atualizado pelo próprio aplicativo no diretório de dados do usuário, sem depender da cópia empacotada.
-- Mantém a correção da 0.5.17 que impede fechamento automático da janela durante a verificação de atualização.
-- Mantém as correções de download HTTP 403, yt-dlp nightly e Deno.
+- Corrige a falha do Restart Manager ao tentar fechar outros programas que mantêm o yt-dlp.exe em uso durante a atualização.
+- Restringe a detecção de aplicativos a fechar aos arquivos executáveis e bibliotecas do YouTube Offline, preservando ferramentas externas em execução.
+- Elimina definitivamente a instalação automática na inicialização: o programa apenas verifica atualizações e não fecha sem solicitação.
+- Adiciona verificações reais no Windows: abertura e permanência do processo, API local, métricas de CPU/memória e reinstalação com yt-dlp bloqueado.
+- Bloqueia a publicação se o teste de reinstalação com ferramenta bloqueada falhar.
+- Mantém o mecanismo de downloads e as demais funcionalidades da 0.5.18.
