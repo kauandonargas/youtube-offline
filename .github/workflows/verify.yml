@@ -28,8 +28,9 @@ jobs:
       - name: Compilar aplicativo Windows
         shell: pwsh
         run: |
-          dotnet publish .\src\LocalTube.App\LocalTube.App.csproj -c Release -r win-x64 --self-contained true -o "$env:RUNNER_TEMP\youtube-offline-smoke"
-          if ($LASTEXITCODE -ne 0) { throw 'dotnet publish falhou.' }
+          # O build oficial materializa o icone versionado antes do dotnet publish.
+          .\scripts\build.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Build oficial falhou.' }
 
       - name: Startup, API e medidas de repouso
         shell: pwsh
@@ -37,7 +38,7 @@ jobs:
           $text = Get-Content .\src\LocalTube.App\LocalTube.App.csproj -Raw
           $m = [regex]::Match($text, '<Version>([^<]+)</Version>')
           if (-not $m.Success) { throw 'Versao nao encontrada.' }
-          .\tests\verify-startup.ps1 -AppPath "$env:RUNNER_TEMP\youtube-offline-smoke\YouTubeOffline.exe" -ExpectedVersion $m.Groups[1].Value -MetricsPath "$env:RUNNER_TEMP\startup-metrics.json"
+          .\tests\verify-startup.ps1 -AppPath ".\dist\YouTubeOffline\YouTubeOffline.exe" -ExpectedVersion $m.Groups[1].Value -MetricsPath "$env:RUNNER_TEMP\startup-metrics.json"
 
       - name: Evidencias de tempo e recursos
         if: always()
