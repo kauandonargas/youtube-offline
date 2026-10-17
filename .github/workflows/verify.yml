@@ -68,11 +68,25 @@ jobs:
         shell: pwsh
         run: choco install innosetup -y --no-progress
 
-      - name: Criar instalador desta PR com ferramentas embutidas
-        shell: powershell
-        env:
-          YOUTUBE_OFFLINE_EMBED_TOOLS: '1'
-        run: .\scripts\build-installer.ps1 -NoOpen
+      - name: Compilar pacote de teste do instalador com ferramentas sentinela
+        shell: pwsh
+        run: |
+          # Teste do Inno Setup, sem baixar centenas de MB de ferramentas.
+          # O release oficial ainda usa as ferramentas reais e repete o teste.
+          .\scripts\build.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Build falhou.' }
+          $tools = '.\dist\YouTubeOffline\tools'
+          New-Item -ItemType Directory -Path $tools -Force | Out-Null
+          foreach ($name in @('yt-dlp.exe', 'deno.exe', 'ffmpeg.exe', 'ffprobe.exe')) {
+            [IO.File]::WriteAllBytes((Join-Path $tools $name), [Text.Encoding]::ASCII.GetBytes('installer-lock-test-fixture'))
+          }
+          $text = Get-Content .\src\LocalTube.App\LocalTube.App.csproj -Raw
+          $version = [regex]::Match($text, '<Version>([^<]+)</Version>').Groups[1].Value
+          if (-not $version) { throw 'Versao ausente.' }
+          $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc)) { throw 'ISCC.exe nao encontrado.' }
+          & $iscc "/DMyAppVersion=$version" '.\installer\LocalTube.iss'
+          if ($LASTEXITCODE -ne 0) { throw 'Compilacao do instalador falhou.' }
 
       - name: Reinstalar com yt-dlp bloqueado
         shell: pwsh
