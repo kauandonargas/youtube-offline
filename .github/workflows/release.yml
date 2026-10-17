@@ -7,9 +7,13 @@ on:
       - 'src/**'
       - 'installer/**'
       - 'scripts/**'
-      - '.github/workflows/release.yml'
+      - 'build/**'
+      - '*.sln'
+      - 'VERSION'
       - 'RELEASE_NOTES.md'
       - 'source/**'
+      - 'youtube-offline-source-*.zip'
+      - '.github/workflows/release.yml'
   workflow_dispatch:
 
 permissions:
@@ -25,20 +29,84 @@ jobs:
     timeout-minutes: 35
     env:
       GH_TOKEN: ${{ github.token }}
+
     steps:
       - name: Checkout do codigo
         uses: actions/checkout@v4
 
-      - name: Restaurar codigo-fonte versionado
+      - name: Restaurar e consolidar codigo-fonte
         shell: pwsh
         run: |
-          $parts = Get-ChildItem 'source/part-*.b64' | Sort-Object Name
-          if (-not $parts) { throw 'Partes do codigo-fonte nao encontradas.' }
-          $b64 = (($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join '') -replace '\s',''
-          $bytes = [Convert]::FromBase64String($b64)
-          $zip = Join-Path $env:RUNNER_TEMP 'youtube-offline-source.zip'
-          [IO.File]::WriteAllBytes($zip, $bytes)
-          Expand-Archive -Path $zip -DestinationPath . -Force
+          $ErrorActionPreference = 'Stop'
+          $stage = Join-Path $env:RUNNER_TEMP 'youtube-offline-source'
+          if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
+          New-Item -ItemType Directory -Path $stage | Out-Null
+
+          $zipFile = Get-ChildItem -Path . -Filter 'youtube-offline-source-*.zip' -File -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+
+          if ($zipFile) {
+            Write-Host "Usando pacote ZIP: $($zipFile.Name)"
+            Expand-Archive -Path $zipFile.FullName -DestinationPath $stage -Force
+          }
+          elseif (Test-Path 'source') {
+            $parts = Get-ChildItem 'source/part-*.b64' -File -ErrorAction SilentlyContinue | Sort-Object Name
+            if (-not $parts) { throw 'Nao foi encontrado um ZIP nem as partes temporarias do codigo-fonte.' }
+            Write-Host "Reconstruindo pacote a partir de $($parts.Count) partes temporarias..."
+            $b64 = (($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join '') -replace '\s',''
+            $bytes = [Convert]::FromBase64String($b64)
+            $tempZip = Join-Path $env:RUNNER_TEMP 'youtube-offline-source.zip'
+            [IO.File]::WriteAllBytes($tempZip, $bytes)
+            Expand-Archive -Path $tempZip -DestinationPath $stage -Force
+          }
+          elseif (Test-Path 'src/LocalTube.App/LocalTube.App.csproj') {
+            Write-Host 'Codigo-fonte ja esta consolidado no repositorio.'
+            exit 0
+          }
+          else {
+            throw 'Codigo-fonte do YouTube Offline nao encontrado.'
+          }
+
+          $items = @(
+            'src',
+            'installer',
+            'scripts',
+            'build',
+            'LocalTube.sln',
+            'CRIAR-INSTALADOR.cmd',
+            'README.md',
+            'RELEASE_NOTES.md',
+            'VERSION',
+            'TESTING.md',
+            '.gitignore'
+          )
+
+          foreach ($item in $items) {
+            $from = Join-Path $stage $item
+            if (-not (Test-Path $from)) { continue }
+            $to = Join-Path (Get-Location) $item
+            if ((Get-Item $from).PSIsContainer) {
+              if (Test-Path $to) { Remove-Item $to -Recurse -Force }
+              Copy-Item $from $to -Recurse -Force
+            }
+            else {
+              Copy-Item $from $to -Force
+            }
+          }
+
+          if (Test-Path 'source') { Remove-Item 'source' -Recurse -Force }
+          Get-ChildItem -Path . -Filter 'youtube-offline-source-*.zip' -File -ErrorAction SilentlyContinue | Remove-Item -Force
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A -- src installer scripts build LocalTube.sln CRIAR-INSTALADOR.cmd README.md RELEASE_NOTES.md VERSION TESTING.md .gitignore source
+          git add -A -- 'youtube-offline-source-*.zip'
+          git diff --cached --quiet
+          if ($LASTEXITCODE -ne 0) {
+            git commit -m 'Consolida codigo-fonte do YouTube Offline'
+            git push
+          }
 
       - name: Configurar .NET 8
         uses: actions/setup-dotnet@v4
