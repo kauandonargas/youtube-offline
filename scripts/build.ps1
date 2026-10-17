@@ -49,25 +49,42 @@ if (-not $FrameworkDependent) {
 & $dotnet @args
 if ($LASTEXITCODE -ne 0) { throw 'Falha no dotnet publish.' }
 
-# Nao embute yt-dlp/FFmpeg nas releases por padrao. Essas ferramentas ficam em
-# %LOCALAPPDATA%\YouTube Offline\tools, sao preparadas no primeiro download e
-# sobrevivem as atualizacoes do aplicativo. Isso reduz muito o tempo e o tamanho
-# de cada instalador. Use -EmbedTools apenas quando quiser um pacote totalmente
-# pre-carregado.
-if ($EmbedTools) {
+# Releases oficiais voltam a incluir yt-dlp e FFmpeg para que o primeiro download
+# comece imediatamente, como nas primeiras versoes do aplicativo. No CI, as
+# ferramentas sao mantidas em cache entre builds para evitar baixa-las de novo.
+$shouldEmbedTools = $EmbedTools -or ($env:YOUTUBE_OFFLINE_EMBED_TOOLS -eq '1')
+if ($shouldEmbedTools) {
   $tools = Join-Path $out 'tools'
   New-Item -ItemType Directory -Path $tools -Force | Out-Null
+
+  $cacheDir = $env:YOUTUBE_OFFLINE_TOOL_CACHE
+  if ([string]::IsNullOrWhiteSpace($cacheDir)) { $cacheDir = $tools }
+  New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null
+
   try {
-    & (Join-Path $PSScriptRoot 'fetch-tools.ps1') -TargetDir $tools
+    & (Join-Path $PSScriptRoot 'fetch-tools.ps1') -TargetDir $cacheDir
+
+    $cacheFull = [IO.Path]::GetFullPath($cacheDir).TrimEnd('\')
+    $toolsFull = [IO.Path]::GetFullPath($tools).TrimEnd('\')
+    if (-not $cacheFull.Equals($toolsFull, [StringComparison]::OrdinalIgnoreCase)) {
+      Copy-Item (Join-Path $cacheDir 'yt-dlp.exe') (Join-Path $tools 'yt-dlp.exe') -Force
+      Copy-Item (Join-Path $cacheDir 'ffmpeg.exe') (Join-Path $tools 'ffmpeg.exe') -Force
+      Copy-Item (Join-Path $cacheDir 'ffprobe.exe') (Join-Path $tools 'ffprobe.exe') -Force
+    }
+
+    foreach ($required in @('yt-dlp.exe','ffmpeg.exe','ffprobe.exe')) {
+      if (-not (Test-Path (Join-Path $tools $required))) { throw "$required nao foi incluido no build." }
+    }
+    Write-Host 'yt-dlp e FFmpeg incluidos no instalador.' -ForegroundColor Green
   }
   catch {
+    if ($env:YOUTUBE_OFFLINE_EMBED_TOOLS -eq '1') { throw }
     Write-Host 'Aviso: nao foi possivel embutir yt-dlp/FFmpeg no instalador.' -ForegroundColor Yellow
     Write-Host $_.Exception.Message -ForegroundColor Yellow
-    Write-Host 'O aplicativo tentara prepara-los automaticamente no primeiro download.' -ForegroundColor Yellow
   }
 }
 else {
-  Write-Host 'Build rapido: yt-dlp/FFmpeg serao mantidos no perfil do usuario e preparados sob demanda.' -ForegroundColor Cyan
+  Write-Host 'Build sem ferramentas embutidas. Use -EmbedTools para pacote completo.' -ForegroundColor Cyan
 }
 
 Write-Host "Build $Version concluido em: $out" -ForegroundColor Green

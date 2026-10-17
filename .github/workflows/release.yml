@@ -49,12 +49,29 @@ jobs:
           "version=$version" >> $env:GITHUB_OUTPUT
           Write-Host "Versao: $version"
 
+      - name: Definir chave mensal das ferramentas
+        id: toolcache
+        shell: pwsh
+        run: |
+          $month = Get-Date -Format 'yyyy-MM'
+          "month=$month" >> $env:GITHUB_OUTPUT
+          Write-Host "Cache das ferramentas: $month"
+
+      - name: Restaurar cache de yt-dlp e FFmpeg
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}\youtube-offline-tools
+          key: youtube-offline-tools-${{ runner.os }}-${{ steps.toolcache.outputs.month }}
+
       - name: Instalar Inno Setup
         shell: pwsh
         run: choco install innosetup -y --no-progress
 
-      - name: Gerar instalador rapido
+      - name: Gerar instalador com ferramentas em cache
         shell: powershell
+        env:
+          YOUTUBE_OFFLINE_EMBED_TOOLS: '1'
+          YOUTUBE_OFFLINE_TOOL_CACHE: ${{ runner.temp }}\youtube-offline-tools
         run: .\scripts\build-installer.ps1 -Version '${{ steps.version.outputs.version }}' -NoOpen
 
       - name: Calcular SHA-256

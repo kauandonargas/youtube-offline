@@ -4,10 +4,76 @@
 
   const style = document.createElement('style');
   style.textContent = `
+    .download-task {
+      padding: 18px 20px;
+      border: 1px solid #303030;
+      border-radius: 14px;
+      background: #181818;
+      margin-bottom: 12px;
+    }
+    .download-task-head {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+    }
+    .download-task-main {
+      flex: 1;
+      min-width: 0;
+    }
+    .download-task-title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .download-task-title {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 700;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .download-task-status {
+      font-size: 13px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .download-task-status.downloading { color: #3ea6ff; }
+    .download-task-status.preparing,
+    .download-task-status.queued { color: #aaa; }
+    .download-task-status.failed { color: #ff6b6b; }
+    .download-task-status.completed { color: #46d17a; }
+    .download-task-current {
+      margin-top: 5px;
+      color: #d8d8d8;
+      font-size: 13px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .download-task-progress {
+      margin: 13px 0 8px;
+    }
+    .download-task-meta {
+      display: flex;
+      gap: 8px 14px;
+      flex-wrap: wrap;
+      align-items: center;
+      color: #aaa;
+      font-size: 12px;
+    }
+    .download-task-meta strong {
+      color: #f1f1f1;
+      font-weight: 600;
+    }
+    .download-task-error {
+      color: #ff8a8a;
+    }
     .cancel-download.cancel-download-x {
-      width: 30px;
-      height: 30px;
-      min-width: 30px;
+      width: 32px;
+      height: 32px;
+      min-width: 32px;
       padding: 0;
       border-radius: 999px;
       display: inline-grid;
@@ -15,6 +81,7 @@
       font-size: 22px;
       line-height: 1;
       font-weight: 400;
+      margin-top: 1px;
     }
   `;
   document.head.appendChild(style);
@@ -43,19 +110,37 @@
     return `${value.toFixed(digits)} ${units[unit]}`;
   }
 
-  function visibleBatchSummary(items) {
-    const completed = items.filter(x => x.status === 'completed').length;
-    const queued = items.filter(x => x.status === 'queued').length;
-    const skipped = items.filter(x => x.status === 'skipped').length;
-    const cancelled = items.filter(x => x.status === 'cancelled').length;
-    const failed = items.filter(x => x.status === 'failed').length;
-    const parts = [];
-    if (completed) parts.push(`${completed} concluído${completed === 1 ? '' : 's'}`);
-    if (queued) parts.push(`${queued} na fila`);
-    if (skipped) parts.push(`${skipped} já existente${skipped === 1 ? '' : 's'}`);
-    if (cancelled) parts.push(`${cancelled} cancelado${cancelled === 1 ? '' : 's'}`);
-    if (failed) parts.push(`${failed} com erro`);
-    return parts.join(' • ') || `${items.length} item(ns)`;
+  function statusText(item, job) {
+    switch (item.status) {
+      case 'queued': return 'Na fila';
+      case 'preparing': return 'Preparando download…';
+      case 'downloading': return 'Baixando agora';
+      case 'cancelling': return 'Cancelando…';
+      case 'completed': return 'Concluído';
+      case 'skipped': return 'Já baixado';
+      case 'cancelled': return 'Cancelado';
+      case 'failed': return 'Erro';
+      default: return item.status || (job.status || 'Aguardando');
+    }
+  }
+
+  function taskSubtitle(item, job) {
+    if (item.error) return item.error;
+    if (item.status === 'preparing') return 'Verificando ferramentas e iniciando a conexão com o YouTube…';
+    if (item.status === 'queued') return 'Aguardando a tarefa anterior terminar.';
+    if (item.status === 'downloading') {
+      if (job.isPlaylist) {
+        const total = Number(item.playlistTotal || 0);
+        const index = Number(item.playlistIndex || 0);
+        if (index > 0 && total > 0) return `Vídeo ${index} de ${total}`;
+        if (total > 0) return `Playlist com ${total} vídeos • conectando ao primeiro vídeo…`;
+        return 'Playlist em andamento…';
+      }
+      return 'Download em andamento…';
+    }
+    return job.isPlaylist && Number(item.playlistTotal || 0) > 0
+      ? `${item.playlistTotal} vídeos na playlist`
+      : '';
   }
 
   const originalAnalyzeDownload = analyzeDownload;
@@ -83,54 +168,59 @@
 
     try {
       const jobs = await api('/api/download/jobs');
-      const visibleJobs = (jobs || [])
-        .map(job => ({ ...job, visibleItems: (job.items || []).filter(item => !hiddenDownloadItems.has(item.id)) }))
-        .filter(job => job.visibleItems.length > 0);
+      const visible = (jobs || [])
+        .map(job => ({ ...job, item: (job.items || []).find(item => !hiddenDownloadItems.has(item.id)) }))
+        .filter(job => job.item);
 
-      if (!visibleJobs.length) {
-        target.innerHTML = emptyState('Nenhum download na fila', 'Cole um link acima para adicionar vídeos.');
+      if (!visible.length) {
+        target.innerHTML = emptyState('Nenhum download na fila', 'Cole um link acima para adicionar vídeos ou playlists.');
         return;
       }
 
-      target.innerHTML = visibleJobs.map(job => {
-        const items = job.visibleItems;
-        const progress = items.length
-          ? items.reduce((sum, item) => sum + (terminalStatuses.has(item.status) ? 100 : Number(item.progress || 0)), 0) / items.length
-          : 0;
+      target.innerHTML = visible.map(job => {
+        const item = job.item;
+        const progress = Math.max(0, Math.min(100, Number(item.progress ?? job.progress ?? 0)));
+        const downloaded = formatTransferBytes(item.downloadedBytes);
+        const total = formatTransferBytes(item.totalBytes);
+        const sizeText = downloaded
+          ? (total ? `${downloaded} / ${item.totalBytesEstimated ? '≈ ' : ''}${total}` : `${downloaded} baixados`)
+          : (total ? `${item.totalBytesEstimated ? '≈ ' : ''}${total} total` : '');
+        const subtitle = taskSubtitle(item, job);
+        const currentTitle = job.isPlaylist && item.status === 'downloading' && item.title && item.title !== job.title
+          ? item.title
+          : '';
+        const cancellable = ['queued', 'preparing', 'downloading', 'cancelling'].includes(item.status);
+        const meta = [
+          `<strong>${Math.round(progress)}%</strong>`,
+          sizeText,
+          item.speed || '',
+          item.eta ? `restam ${item.eta}` : ''
+        ].filter(Boolean).join('<span>•</span>');
 
-        return `<article class="download-batch">
-          <header class="download-batch-head">
-            <div><h3>${escapeHtml(job.title || (job.isPlaylist ? 'Playlist' : 'Download'))}</h3><p>${escapeHtml(visibleBatchSummary(items))}</p></div>
-            <div class="batch-progress-text">${Math.round(progress)}%</div>
-          </header>
-          <div class="bar batch-bar"><span style="width:${Math.max(0, Math.min(100, progress))}%"></span></div>
-          <div class="download-items">
-            ${items.map(item => {
-              const cancellable = ['queued', 'preparing', 'downloading', 'cancelling'].includes(item.status);
-              const index = item.playlistIndex > 0 ? `<span class="download-index">${String(item.playlistIndex).padStart(2, '0')}</span>` : '';
-              const downloaded = formatTransferBytes(item.downloadedBytes);
-              const total = formatTransferBytes(item.totalBytes);
-              const sizeText = downloaded
-                ? (total ? `${downloaded} / ${item.totalBytesEstimated ? '≈ ' : ''}${total}` : `${downloaded} baixados`)
-                : (total ? `${item.totalBytesEstimated ? '≈ ' : ''}${total} total` : '');
-              const detail = item.error || [sizeText, item.speed, item.eta ? `restam ${item.eta}` : ''].filter(Boolean).join(' • ');
-              return `<div class="download-item ${escapeHtml(item.status)}">
-                ${index}
-                <div class="download-item-main">
-                  <div class="download-item-top"><strong title="${escapeHtml(item.title)}">${escapeHtml(item.title || 'Vídeo')}</strong><span class="status-pill ${escapeHtml(item.status)}">${escapeHtml(downloadStatusLabel(item))}</span></div>
-                  <div class="bar item-bar"><span style="width:${Math.max(0, Math.min(100, item.progress || 0))}%"></span></div>
-                  <div class="download-item-bottom"><span>${escapeHtml(detail || (item.status === 'queued' ? 'Aguardando os vídeos anteriores' : ''))}</span>${cancellable ? `<button class="cancel-download cancel-download-x" data-cancel-download="${item.id}" title="Cancelar e remover" aria-label="Cancelar e remover">×</button>` : ''}</div>
-                </div>
-              </div>`;
-            }).join('')}
+        return `<article class="download-task">
+          <div class="download-task-head">
+            <div class="download-task-main">
+              <div class="download-task-title-row">
+                <h3 class="download-task-title" title="${escapeHtml(job.title || 'Download')}">${escapeHtml(job.title || (job.isPlaylist ? 'Playlist' : 'Download'))}</h3>
+                <span class="download-task-status ${escapeHtml(item.status)}">${escapeHtml(statusText(item, job))}</span>
+              </div>
+              ${currentTitle ? `<div class="download-task-current" title="${escapeHtml(currentTitle)}">${escapeHtml(currentTitle)}</div>` : ''}
+              <div class="bar download-task-progress"><span style="width:${progress}%"></span></div>
+              <div class="download-task-meta ${item.error ? 'download-task-error' : ''}">
+                ${meta || '<span>0%</span>'}
+                ${subtitle ? `<span>•</span><span>${escapeHtml(subtitle)}</span>` : ''}
+              </div>
+            </div>
+            ${cancellable ? `<button class="cancel-download cancel-download-x" data-cancel-download="${item.id}" title="Cancelar" aria-label="Cancelar">×</button>` : ''}
           </div>
         </article>`;
       }).join('');
 
       $$('[data-cancel-download]', target).forEach(btn => btn.addEventListener('click', () => cancelDownloadItem(btn.dataset.cancelDownload)));
 
-      const completionSignature = visibleJobs
-        .flatMap(job => job.visibleItems.filter(x => x.status === 'completed').map(x => x.id))
+      const completionSignature = visible
+        .filter(job => job.item.status === 'completed')
+        .map(job => job.item.id)
         .sort()
         .join('|');
 
