@@ -1,9 +1,5 @@
-# YouTube Offline 0.5.10
+# YouTube Offline 0.5.11
 
-- Corrige o motor de download e a interface ao mesmo tempo.
-- O download nao faz uma segunda analise do link antes de iniciar; se a analise da tela ja existe, ela e reaproveitada.
-- Playlists continuam como uma unica tarefa e uma unica execucao do yt-dlp.
-- Desativa totalmente o acesso automatico a cookies de navegadores.
-- A fila mostra claramente Preparando, Baixando agora, porcentagem, MB/GB, tamanho, velocidade e tempo restante.
-- Enquanto ainda nao chegaram bytes, a barra fica animada e informa que o yt-dlp esta conectado e aguardando dados do YouTube.
-- Em playlists, o titulo e o numero do video atual passam a ser atualizados pelo proprio progresso do yt-dlp.
+- Corrige playlists grandes que podiam ficar muito tempo em 0% antes do primeiro vídeo.
+- O yt-dlp agora começa a processar e baixar os itens conforme a playlist é enumerada, sem esperar a lista inteira terminar.
+- Mantém uma playlist como uma única tarefa e continua mostrando vídeo atual, quantos faltam, tamanho e velocidade.

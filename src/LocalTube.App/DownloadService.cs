@@ -480,6 +480,9 @@ public sealed class DownloadService
         {
             // Mesmo modelo da primeira versao: uma unica execucao cuida da playlist toda.
             args.Add("--yes-playlist");
+            // Em playlists grandes, começa a processar os vídeos conforme eles são
+            // encontrados em vez de esperar a playlist inteira ser enumerada.
+            args.Add("--lazy-playlist");
             args.Add("--ignore-errors");
             args.Add("--continue");
         }
