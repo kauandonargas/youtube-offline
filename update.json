@@ -1,15 +1,16 @@
 {
   "schemaVersion": 1,
   "product": "YouTube Offline",
-  "version": "0.5.7",
-  "publishedAt": "2026-10-17T07:01:53Z",
-  "installerUrl": "https://github.com/kauandonargas/youtube-offline/releases/download/v0.5.7/YouTube-Offline-Setup-0.5.7-x64.exe",
-  "sha256": "a78c1fdbe3642391c200992a2af36e7990c948cdd8267ddc2c75c60f5dc3a308",
+  "version": "0.5.8",
+  "publishedAt": "2026-10-17T07:07:44Z",
+  "installerUrl": "https://github.com/kauandonargas/youtube-offline/releases/download/v0.5.8/YouTube-Offline-Setup-0.5.8-x64.exe",
+  "sha256": "0dadeb75cdc63f516d6dd5ef5b0a023139456d86dbe0fe52a3240830d1a5a5b0",
   "mandatory": false,
   "notes": [
-    "Otimiza o processo de publicação para gerar atualizações muito mais rápido.",
-    "O instalador deixa de baixar e embutir yt-dlp e FFmpeg em toda nova versão.",
-    "yt-dlp e FFmpeg passam a ser preparados sob demanda em %LOCALAPPDATA%\\YouTube Offline\\tools e continuam disponíveis entre atualizações.",
-    "Mantém a correção do atualizador da 0.5.6 e o novo comportamento de playlists da 0.5.5."
+    "Mostra em tempo real quanto já foi transferido durante cada download (MB/GB).",
+    "Mostra o tamanho total do arquivo quando o YouTube informa o valor, ou o tamanho estimado quando só há estimativa.",
+    "Mantém velocidade, porcentagem e tempo restante junto com o tamanho transferido.",
+    "Em playlists, o tamanho exibido acompanha o arquivo/vídeo que está sendo transferido naquele momento, mantendo a playlist como uma única tarefa na fila.",
+    "A exibição usa unidades legíveis automaticamente, como MB e GB."
   ]
 }
