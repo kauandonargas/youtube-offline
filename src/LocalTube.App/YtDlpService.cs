@@ -159,39 +159,97 @@ public sealed class YtDlpService
             item.Error = null;
             job.Status = "downloading";
 
-            var args = BuildArgs(req, ffmpeg, deno);
-            var result = await RunDownloadProcessAsync(tool, args, job, item, cts.Token);
+            // Cada tentativa reextrai o URL; playlists reutilizam um arquivo de
+            // concluídos, sem rebaixar arquivos já finalizados na mesma sessão.
+            var profiles = DownloadRecovery.Profiles(string.Equals(req.Mode, "audio", StringComparison.OrdinalIgnoreCase));
+            var archiveDir = Path.Combine(_store.DataDirectory, "download-archives");
+            Directory.CreateDirectory(archiveDir);
+            var archivePath = req.Playlist ? Path.Combine(archiveDir, job.Id + ".txt") : null;
+            item.AttemptTotal = profiles.Count;
+            bool succeeded = false;
+            string lastError = "";
+            int archived = 0;
 
-            // URLs de mídia do YouTube são assinadas e podem ser invalidadas durante
-            // a sessão. Em 403, atualizamos o extrator e fazemos uma única nova
-            // extração. O yt-dlp continua arquivos .part quando possível.
-            if (result.ExitCode != 0 && IsHttp403(result.Error))
+            for (var attempt = 0; attempt < profiles.Count; attempt++)
             {
+                cts.Token.ThrowIfCancellationRequested();
+                var profile = profiles[attempt];
+                item.Attempt = attempt + 1;
+                item.Strategy = profile.Label;
+                item.Progress = 0;
                 item.Speed = "";
                 item.Eta = "";
-                item.Error = "HTTP 403 recebido. Renovando o mecanismo e tentando novamente...";
-                item.Status = "preparing";
-                job.Status = "preparing";
-
-                tool = await _tools.RefreshYtDlpAsync(cts.Token);
-                cts.Token.ThrowIfCancellationRequested();
-
+                item.Error = attempt == 0 ? null : $"Tentativa {attempt + 1}/{profiles.Count}: {profile.Label}";
                 item.Status = "downloading";
                 job.Status = "downloading";
-                args = BuildArgs(req, ffmpeg, deno);
-                result = await RunDownloadProcessAsync(tool, args, job, item, cts.Token);
-            }
 
-            if (result.ExitCode != 0)
-            {
-                if (IsHttp403(result.Error))
+                var args = BuildArgs(req, ffmpeg, deno, profile, archivePath);
+                var result = await RunDownloadProcessAsync(tool, args, job, item, cts.Token);
+                archived = CountArchiveEntries(archivePath);
+                var reportedErrors = DownloadRecovery.CountErrors(result.Error);
+                bool missingFromPlaylist = req.Playlist && job.TotalItems > 0 && archived < job.TotalItems;
+                lastError = CleanError(result.Error);
+
+                if (result.ExitCode == 0 && reportedErrors == 0 && !missingFromPlaylist)
                 {
-                    throw new InvalidOperationException(
-                        "O YouTube recusou a URL de mídia (HTTP 403) mesmo após renovar o yt-dlp e reextrair o link. " +
-                        "Tente novamente em alguns minutos; se ocorrer somente neste vídeo, ele pode exigir autenticação ou estar temporariamente restrito.");
+                    succeeded = true;
+                    break;
                 }
 
-                throw new InvalidOperationException(CleanError(result.Error));
+                // Não repetir vídeos privados, pagos, protegidos ou pedidos de
+                // autenticação. Mudar a estratégia não concede acesso.
+                if (DownloadRecovery.IsRestricted(result.Error))
+                {
+                    if (req.Playlist && archived > 0) break;
+                    throw new InvalidOperationException(
+                        "Este conteúdo exige acesso/autenticação ou não está disponível. Não é possível recuperá-lo automaticamente. " + lastError);
+                }
+
+                // Rate limit é um bloqueio temporário: repetir dez métodos
+                // consecutivos agravaria o bloqueio do serviço.
+                if (DownloadRecovery.IsRateLimited(result.Error))
+                {
+                    if (req.Playlist && archived > 0) break;
+                    throw new InvalidOperationException(
+                        "O YouTube limitou temporariamente as solicitações (HTTP 429). Aguarde antes de tentar novamente.");
+                }
+
+                // Reinstalar o extrator apenas uma vez, depois de terminar o
+                // processo ativo, evita atualizações em loop e arquivos em uso.
+                if (attempt == 0 && IsHttp403(result.Error))
+                {
+                    item.Status = "preparing";
+                    job.Status = "preparing";
+                    item.Error = "HTTP 403. Atualizando o extrator e tentando outro método...";
+                    tool = await _tools.RefreshYtDlpAsync(cts.Token);
+                }
+
+                if (attempt + 1 < profiles.Count)
+                {
+                    item.Error = $"Método {attempt + 1} falhou. Próximo: {profiles[attempt + 1].Label}. {lastError}";
+                    await Task.Delay(TimeSpan.FromSeconds(Math.Min(1 + attempt, 5)), cts.Token);
+                }
+            }
+
+            // A opção --ignore-errors do yt-dlp pode devolver código zero mesmo
+            // com vídeos indisponíveis na playlist. Não reportar sucesso falso.
+            if (!succeeded)
+            {
+                if (req.Playlist && archived > 0)
+                {
+                    job.CompletedItems = archived;
+                    job.FailedItems = Math.Max(1, job.TotalItems - archived);
+                    job.Status = "partial";
+                    item.Status = "partial";
+                    item.Error = $"Baixados {archived} de {job.TotalItems} itens. Alguns vídeos não foram recuperados. {lastError}";
+                    item.Speed = "";
+                    item.Eta = "";
+                    job.Progress = job.TotalItems > 0 ? Math.Min(100, archived * 100d / job.TotalItems) : 0;
+                    _scanner.Scan();
+                    return;
+                }
+                throw new InvalidOperationException(
+                    $"Todas as {profiles.Count} estratégias falharam. Último erro: {lastError}");
             }
 
             item.Progress = 100;
@@ -202,7 +260,7 @@ public sealed class YtDlpService
 
             job.Progress = 100;
             job.Status = "completed";
-            job.CompletedItems = Math.Max(1, job.TotalItems);
+            job.CompletedItems = req.Playlist ? Math.Max(archived, job.TotalItems) : 1;
             job.FailedItems = 0;
             job.CancelledItems = 0;
             job.SkippedItems = 0;
@@ -283,7 +341,14 @@ public sealed class YtDlpService
         return (process.ExitCode, stderr.ToString());
     }
 
-    private List<string> BuildArgs(DownloadRequest req, string? ffmpeg, string deno)
+    private static int CountArchiveEntries(string? file)
+    {
+        if (file is null || !File.Exists(file)) return 0;
+        try { return File.ReadLines(file).Count(line => !string.IsNullOrWhiteSpace(line)); }
+        catch (IOException) { return 0; }
+    }
+
+    private List<string> BuildArgs(DownloadRequest req, string? ffmpeg, string deno, DownloadProfile profile, string? archivePath)
     {
         var output = req.Playlist
             ? Path.Combine(_store.Settings.LibraryFolder, "%(playlist_title)s", "%(playlist_index)03d - %(title)s [%(id)s].%(ext)s")
@@ -294,9 +359,9 @@ public sealed class YtDlpService
             "--ignore-config",
             "--no-colors", "--newline", "--windows-filenames",
             "--js-runtimes", $"deno:{deno}",
-            "--retries", "10",
-            "--fragment-retries", "10",
+            "--retries", "10", "--fragment-retries", "10",
             "--socket-timeout", "30",
+            "--continue",
             "--write-info-json", "--write-thumbnail",
             "--progress-template", "download:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s",
             "-o", output
@@ -312,17 +377,23 @@ public sealed class YtDlpService
         {
             args.Add("--yes-playlist");
             args.Add("--ignore-errors");
-            args.Add("--continue");
+            if (archivePath is not null)
+            {
+                args.Add("--download-archive");
+                args.Add(archivePath);
+            }
         }
         else
         {
             args.Add("--no-playlist");
         }
 
-        if (string.Equals(req.Mode, "audio", StringComparison.OrdinalIgnoreCase))
+        bool audio = string.Equals(req.Mode, "audio", StringComparison.OrdinalIgnoreCase);
+        args.Add("-f");
+        args.Add(DownloadRecovery.FormatSelector(audio, req.Quality, profile.FormatKind));
+
+        if (audio)
         {
-            args.Add("-f");
-            args.Add("ba/b");
             var fmt = (req.AudioFormat ?? "original").ToLowerInvariant();
             if (fmt != "original")
             {
@@ -338,15 +409,11 @@ public sealed class YtDlpService
         }
         else
         {
-            var selector = "bv[ext=mp4]+ba[ext=m4a]/bv+ba/b[ext=mp4]/b";
-            if (int.TryParse(req.Quality, out var h) && h > 0)
-                selector = $"bv[height<={h}][ext=mp4]+ba[ext=m4a]/bv[height<={h}]+ba/b[height<={h}][ext=mp4]/b[height<={h}]";
-            args.Add("-f");
-            args.Add(selector);
             args.Add("--merge-output-format");
             args.Add("mp4");
         }
 
+        args.AddRange(profile.ExtraArgs);
         args.Add(req.Url);
         return args;
     }
