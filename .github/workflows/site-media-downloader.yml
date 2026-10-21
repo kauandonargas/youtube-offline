@@ -63,18 +63,18 @@ jobs:
         run: |
           $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { throw "Inno Setup não localizado" }
-          & $iscc "/DMyAppVersion=0.2.0" "site-media-downloader/installer/SiteMediaDownloader.iss"
+          & $iscc "/DMyAppVersion=0.3.0" "site-media-downloader/installer/SiteMediaDownloader.iss"
           if ($LASTEXITCODE -ne 0) { throw "Falha gerando Setup.exe" }
-          $file = "site-media-downloader/dist/installer/Site-Media-Downloader-Setup-0.2.0-x64.exe"
+          $file = "site-media-downloader/dist/installer/Site-Media-Downloader-Setup-0.3.0-x64.exe"
           if (-not (Test-Path $file)) { throw "Instalador não encontrado" }
           $sha = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$sha  Site-Media-Downloader-Setup-0.2.0-x64.exe" | Set-Content -Path "$file.sha256" -Encoding ascii
+          "$sha  Site-Media-Downloader-Setup-0.3.0-x64.exe" | Set-Content -Path "$file.sha256" -Encoding ascii
           Write-Host "SHA256=$sha"
 
       - name: Verificar instalação silenciosa
         shell: pwsh
         run: |
-          $setup = (Resolve-Path "site-media-downloader/dist/installer/Site-Media-Downloader-Setup-0.2.0-x64.exe").Path
+          $setup = (Resolve-Path "site-media-downloader/dist/installer/Site-Media-Downloader-Setup-0.3.0-x64.exe").Path
           $destination = "$env:RUNNER_TEMP\Site Media Downloader"
           $proc = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", ('/DIR="{0}"' -f $destination) -Wait -PassThru
           if ($proc.ExitCode -ne 0) { throw "Falha de instalação: $($proc.ExitCode)" }
@@ -85,7 +85,7 @@ jobs:
       - name: Disponibilizar instalador para testes
         uses: actions/upload-artifact@v4
         with:
-          name: Site-Media-Downloader-0.2.0-Windows
+          name: Site-Media-Downloader-0.3.0-Windows
           path: |
             site-media-downloader/dist/installer/*.exe
             site-media-downloader/dist/installer/*.sha256
@@ -97,12 +97,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "site-media-v0.2.0"
-          $exe = "site-media-downloader/dist/installer/Site-Media-Downloader-Setup-0.2.0-x64.exe"
+          $tag = "site-media-v0.3.0"
+          $exe = "site-media-downloader/dist/installer/Site-Media-Downloader-Setup-0.3.0-x64.exe"
           $sha = "$exe.sha256"
           gh release view $tag --repo "${{ github.repository }}" *> $null
           if ($LASTEXITCODE -eq 0) {
             gh release upload $tag $exe $sha --repo "${{ github.repository }}" --clobber
           } else {
-            gh release create $tag $exe $sha --repo "${{ github.repository }}" --title "Site Media Downloader 0.2.0" --notes "App Windows independente para links de páginas de sites. yt-dlp, FFmpeg, perfis de recuperação, descoberta HTML5. Não altera o YouTube Offline. Alguns sites exigem login, CAPTCHA ou DRM."
+            gh release create $tag $exe $sha --repo "${{ github.repository }}" --title "Site Media Downloader 0.3.0" --notes "App Windows independente para links de páginas de sites. yt-dlp, FFmpeg, perfis de recuperação, descoberta HTML5. Não altera o YouTube Offline. Alguns sites exigem login, CAPTCHA ou DRM."
           }
