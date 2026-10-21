@@ -7,15 +7,16 @@
     <OutputType>WinExe</OutputType>
     <AssemblyName>SiteMediaDownloader</AssemblyName>
     <RootNamespace>SiteMediaDownloader</RootNamespace>
-    <Version>0.1.0</Version>
-    <AssemblyVersion>0.1.0.0</AssemblyVersion>
-    <FileVersion>0.1.0.0</FileVersion>
+    <Version>0.2.0</Version>
+    <AssemblyVersion>0.2.0.0</AssemblyVersion>
+    <FileVersion>0.2.0.0</FileVersion>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2210.55" />
   </ItemGroup>
   <ItemGroup>
     <Compile Remove="tests/**" />
+    <Compile Include="../shared/MediaDiagnostics.cs" Link="MediaDiagnostics.cs" />
     <Content Include="wwwroot/**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
