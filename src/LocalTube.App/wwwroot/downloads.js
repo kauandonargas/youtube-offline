@@ -2,6 +2,7 @@
   state.downloadAnalysisUrl = state.downloadAnalysisUrl || '';
   state.downloadUiMeta = state.downloadUiMeta || {};
   state.downloadCookieBrowser = state.downloadCookieBrowser || 'none';
+  state.downloadCaptured = state.downloadCaptured || null;
 
   const activeStatuses = new Set(['queued', 'preparing', 'downloading', 'cancelling']);
 
@@ -77,9 +78,11 @@
             <div class="download-url-row">
               <input id="downloadUrl" type="url" inputmode="url" autocomplete="off" placeholder="https://youtube.com/watch?v=... ou /playlist?list=..." />
               <button class="secondary" id="analyzeBtn">Analisar</button>
-              <button class="secondary" id="openYoutubePage">Abrir no navegador</button>
+              <button class="secondary" id="openMediaInspector">Detectar mídia no navegador</button>
+              <button class="secondary" id="openYoutubePage">Abrir navegador externo</button>
             </div>
-            <small>Vídeo ou playlist; falhas de rede, formato e acesso recebem diagnósticos distintos.</small>
+            <small>Vídeo ou playlist. O navegador integrado pode identificar fontes HTTP, HLS e DASH disponíveis durante a reprodução.</small>
+            ${state.downloadCaptured ? `<div class="download-playlist-note" style="margin-top:10px"><strong>Fonte ${escapeHtml(state.downloadCaptured.kind || "de mídia")} selecionada</strong><span>Pode conter só áudio ou só vídeo; links temporários podem expirar. Clique em Baixar para tentar salvar a fonte detectada.</span></div>` : ""}
             <div class="field" style="margin-top:14px">
               <label for="downloadBrowser">Sessão autorizada (opcional)</label>
               <select id="downloadBrowser">
@@ -120,10 +123,23 @@
     const browserSelect = $('#downloadBrowser');
     if (browserSelect) browserSelect.value = state.downloadCookieBrowser;
     browserSelect?.addEventListener('change', e => { state.downloadCookieBrowser = e.target.value; });
+    $('#openMediaInspector')?.addEventListener('click', () => {
+      const url = $('#downloadUrl')?.value?.trim();
+      if (!/^https?:\/\//i.test(url)) {
+        toast('Cole o endereço da página antes de abrir o navegador integrado.');
+        return;
+      }
+      if (!window.chrome?.webview) {
+        toast('Navegador integrado disponível apenas no aplicativo Windows.');
+        return;
+      }
+      window.chrome.webview.postMessage({ type: 'open-media-inspector', url: state.downloadCaptured?.sourcePage || url });
+    });
     $('#openYoutubePage')?.addEventListener('click', () => {
       const url = $('#downloadUrl')?.value?.trim();
       if (/^https?:\/\//i.test(url)) window.open(url, '_blank', 'noopener');
     });
+    input?.addEventListener('input', () => { state.downloadCaptured = null; });
     input?.addEventListener('keydown', event => {
       if (event.key === 'Enter') {
         event.preventDefault();
@@ -139,6 +155,18 @@
 
     renderJobs();
     pollJobs();
+  };
+
+  window.localTubeMediaCaptured = function (media) {
+    if (!media || !/^https?:\/\//i.test(media.url || '')) return;
+    state.downloadCaptured = media;
+    state.downloadAnalysis = {
+      isPlaylist: false, title: 'Fonte detectada no navegador (' + (media.kind || 'mídia') + ')',
+      channel: 'Navegador integrado', qualities: [], itemCount: 1, entries: []
+    };
+    state.downloadAnalysisUrl = media.url;
+    renderDownloads();
+    toast('Fonte selecionada. Confira o tipo de mídia e clique em Baixar.');
   };
 
   analyzeDownload = async function () {
@@ -194,7 +222,9 @@
           quality: $('#downloadQuality')?.value || 'best',
           audioFormat: $('#audioFormat')?.value || 'original',
           playlist: !!analysis.isPlaylist,
-          cookieBrowser: state.downloadCookieBrowser
+          cookieBrowser: state.downloadCookieBrowser,
+          capturedMedia: !!state.downloadCaptured && state.downloadCaptured.url === url,
+          sourcePage: state.downloadCaptured?.sourcePage || ""
         }
       });
 
@@ -210,6 +240,7 @@
       toast(analysis.isPlaylist ? 'Playlist adicionada aos downloads.' : 'Download iniciado.');
       state.downloadAnalysis = null;
       state.downloadAnalysisUrl = '';
+      state.downloadCaptured = null;
       renderDownloads();
     } catch (error) {
       toast(error.message);
