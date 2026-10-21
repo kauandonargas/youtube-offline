@@ -1,18 +1,18 @@
 {
   "schemaVersion": 1,
   "product": "YouTube Offline",
-  "version": "0.5.21",
-  "publishedAt": "2026-10-21T14:41:29Z",
-  "installerUrl": "https://github.com/kauandonargas/youtube-offline/releases/download/v0.5.21/YouTube-Offline-Setup-0.5.21-x64.exe",
-  "sha256": "4735d186c5a4544fa5caf44d1fd789b52205ae77f7f978d63cdf45445fb5e134",
+  "version": "0.5.22",
+  "publishedAt": "2026-10-21T23:26:38Z",
+  "installerUrl": "https://github.com/kauandonargas/youtube-offline/releases/download/v0.5.22/YouTube-Offline-Setup-0.5.22-x64.exe",
+  "sha256": "fe20613a91959a05cdbc618fa12676f07e3cba3eb336ea045c762cf2ffbe435a",
   "mandatory": false,
   "notes": [
-    "Motor de diagnóstico compartilhado com o Site Media Downloader: diferencia falha de formato, rede, HTTP 403, Cloudflare, CAPTCHA, autenticação, limite 429 e DRM.",
-    "A análise e o download agora aceitam opcionalmente uma sessão autorizada do Edge, Chrome, Firefox ou Brave; o padrão continua sem cookies.",
-    "Abre o link no navegador padrão para permitir verificações manuais legítimas.",
-    "Não declara sucesso quando um arquivo novo não foi confirmado no disco; playlists preservam o controle dos itens concluídos.",
-    "Mantém o sistema existente de recuperação, cancelamento, formatos e atualização.",
-    "Não desbloqueia vídeos protegidos, conteúdo pago sem acesso ou desafios CAPTCHA de forma automática.",
-    "Inclui novos testes automatizados das decisões de diagnóstico."
+    "Novo navegador integrado para abrir a página, reproduzir o vídeo e identificar URLs de mídia recebidas realmente pelo navegador.",
+    "Detecta vídeo, áudio, HLS e DASH pelos cabeçalhos HTTP e por fontes HTML5.",
+    "Uma fonte selecionada pelo usuário pode ser baixada por transporte HTTP/FFmpeg independente do yt-dlp; o yt-dlp permanece como alternativa.",
+    "Recursos HTTP só são classificados como candidatos quando a resposta é bem-sucedida.",
+    "Preserva cancelamento, biblioteca offline, extração de playlists e sessões opcionais escolhidas pelo usuário.",
+    "CAPTCHA, autenticação e DRM continuam sujeitos aos controles da plataforma e não são contornados automaticamente.",
+    "Testes automatizados de detecção e validações Windows."
   ]
 }
