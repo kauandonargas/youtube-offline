@@ -42,4 +42,15 @@ Check(MediaDiagnostics.Classify("Connection reset by peer").Code == "network", "
 Check(MediaDiagnostics.Classify("HTTP Error 403: Forbidden").Code == "forbidden", "403 sem Cloudflare tem causa diferente.");
 Check(MediaDiagnostics.NormalizeBrowser("ChRoMe") == "chrome", "Aceitar somente navegador autorizado.");
 Check(MediaDiagnostics.NormalizeBrowser("--exec-malicious") == "none", "Bloquear injeção nas opções de navegador.");
+var capturedVideo = MediaCore.BrowserMediaClassifier.Examine("https://cdn.example.org/stream?token=abc", "video/mp4", "https://example.org/watch/123", 206);
+Check(capturedVideo is not null && capturedVideo.Kind == "Vídeo", "A captura deve reconhecer streams sem extensão por tipo MIME.");
+Check(MediaCore.BrowserMediaClassifier.Examine("https://cdn.example.org/segment.m4a", "audio/mp4", "https://example.org/watch", 200)?.Kind == "Áudio", "A captura deve reconhecer audio.");
+Check(MediaCore.BrowserMediaClassifier.Examine("https://cdn.example.org/master.m3u8", "application/vnd.apple.mpegurl", "https://example.org/watch", 200)?.Kind == "HLS", "HLS deve ser detectado.");
+Check(MediaCore.BrowserMediaClassifier.Examine("https://cdn.example.org/stream.mpd", "application/dash+xml", "https://example.org/watch", 200)?.Kind == "DASH", "DASH deve ser detectado.");
+Check(MediaCore.BrowserMediaClassifier.Examine("https://cdn.example.org/image.jpg", "image/jpeg", "https://example.org/watch", 200) is null, "Imagens não são mídia de download.");
+Check(MediaCore.BrowserMediaClassifier.Examine("https://cdn.example.org/movie.mp4", "video/mp4", "https://example.org/watch", 403) is null, "Respostas bloqueadas não devem aparecer como mídia acessível.");
+Check(MediaCore.BrowserMediaClassifier.Examine("file:///C:/secret.mp4", "video/mp4", "", 200) is null, "Não usar arquivos locais como recursos remotos.");
+Check(capturedVideo is not null && MediaCore.DirectMediaTransport.IsSupported(capturedVideo), "Transporte independente deve aceitar fonte selecionada.");
+Check(MediaCore.DirectMediaTransport.GuessExtension(capturedVideo!) == ".mp4", "Formato deve ser identificado a partir do MIME.");
+
 Console.WriteLine("Download recovery: cenários determinísticos aprovados.");
