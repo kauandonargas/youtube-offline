@@ -1,7 +1,7 @@
 (() => {
   state.downloadAnalysisUrl = state.downloadAnalysisUrl || '';
   state.downloadUiMeta = state.downloadUiMeta || {};
-  state.downloadCookieBrowser = 'none';
+  state.downloadCookieBrowser = state.downloadCookieBrowser || 'none';
 
   const activeStatuses = new Set(['queued', 'preparing', 'downloading', 'cancelling']);
 
@@ -64,7 +64,7 @@
 
     content.innerHTML = `
       <div class="page-head downloads-head">
-        <div><h1>Downloads</h1><p>Adicione conteúdo à biblioteca usando o fluxo estável da v0.4.</p></div>
+        <div><h1>Downloads</h1><p>Adicione conteúdo usando diagnóstico de falhas e recuperação automática.</p></div>
       </div>
       <div class="downloads-layout">
         <section class="download-create-card">
@@ -77,8 +77,20 @@
             <div class="download-url-row">
               <input id="downloadUrl" type="url" inputmode="url" autocomplete="off" placeholder="https://youtube.com/watch?v=... ou /playlist?list=..." />
               <button class="secondary" id="analyzeBtn">Analisar</button>
+              <button class="secondary" id="openYoutubePage">Abrir no navegador</button>
             </div>
-            <small>Primeiro identificamos se o link é um vídeo ou uma playlist. Playlists são entregues ao yt-dlp em uma única execução.</small>
+            <small>Vídeo ou playlist; falhas de rede, formato e acesso recebem diagnósticos distintos.</small>
+            <div class="field" style="margin-top:14px">
+              <label for="downloadBrowser">Sessão autorizada (opcional)</label>
+              <select id="downloadBrowser">
+                <option value="none">Não usar cookies do navegador</option>
+                <option value="edge">Microsoft Edge</option>
+                <option value="chrome">Google Chrome</option>
+                <option value="firefox">Mozilla Firefox</option>
+                <option value="brave">Brave</option>
+              </select>
+              <small>Se você escolher um navegador, o yt-dlp poderá ler os cookies da sua sessão local nesta tentativa. Os cookies não são salvos pelo aplicativo. Pode ser necessário fechar o navegador.</small>
+            </div>
           </div>
 
           ${renderAnalysis(a)}
@@ -105,6 +117,13 @@
     if (input) input.value = state.downloadAnalysisUrl || '';
 
     $('#analyzeBtn')?.addEventListener('click', analyzeDownload);
+    const browserSelect = $('#downloadBrowser');
+    if (browserSelect) browserSelect.value = state.downloadCookieBrowser;
+    browserSelect?.addEventListener('change', e => { state.downloadCookieBrowser = e.target.value; });
+    $('#openYoutubePage')?.addEventListener('click', () => {
+      const url = $('#downloadUrl')?.value?.trim();
+      if (/^https?:\/\//i.test(url)) window.open(url, '_blank', 'noopener');
+    });
     input?.addEventListener('keydown', event => {
       if (event.key === 'Enter') {
         event.preventDefault();
@@ -136,7 +155,7 @@
     try {
       const analysis = await api('/api/download/analyze', {
         method: 'POST',
-        body: { url, cookieBrowser: 'none' }
+        body: { url, cookieBrowser: state.downloadCookieBrowser }
       });
       state.downloadAnalysis = analysis;
       state.downloadAnalysisUrl = url;
@@ -175,7 +194,7 @@
           quality: $('#downloadQuality')?.value || 'best',
           audioFormat: $('#audioFormat')?.value || 'original',
           playlist: !!analysis.isPlaylist,
-          cookieBrowser: 'none'
+          cookieBrowser: state.downloadCookieBrowser
         }
       });
 
@@ -235,7 +254,7 @@
           ? item.title
           : '';
         const strategy = item.strategy && activeStatuses.has(status) ? `Método ${item.attempt || 1}/${item.attemptTotal || 1}: ${item.strategy}` : '';
-        const detail = [strategy, item.error || [position, item.speed, item.eta ? `restam ${item.eta}` : ''].filter(Boolean).join(' • ')].filter(Boolean).join(' • ');
+        const detail = [item.failureCode && status === 'failed' ? `Diagnóstico: ${item.failureCode}` : '', strategy, item.error || [position, item.speed, item.eta ? `restam ${item.eta}` : ''].filter(Boolean).join(' • ')].filter(Boolean).join(' • ');
         const cancellable = activeStatuses.has(item.status || status);
 
         return `<article class="download-job-card ${escapeHtml(status)}">
