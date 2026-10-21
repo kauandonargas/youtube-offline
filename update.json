@@ -1,17 +1,18 @@
 {
   "schemaVersion": 1,
   "product": "YouTube Offline",
-  "version": "0.5.19",
-  "publishedAt": "2026-10-17T22:42:00Z",
-  "installerUrl": "https://github.com/kauandonargas/youtube-offline/releases/download/v0.5.19/YouTube-Offline-Setup-0.5.19-x64.exe",
-  "sha256": "805ca2dd582bcb30711614993a3f6bcd23ce30676afc1f0fa5ee09a0ddc31a69",
+  "version": "0.5.20",
+  "publishedAt": "2026-10-21T04:42:02Z",
+  "installerUrl": "https://github.com/kauandonargas/youtube-offline/releases/download/v0.5.20/YouTube-Offline-Setup-0.5.20-x64.exe",
+  "sha256": "f2873615e1d9cc4e575431eaff5d04b44a2d5cfd72b95c7f38a9168577ef24aa",
   "mandatory": false,
   "notes": [
-    "Corrige a falha do Restart Manager ao tentar fechar outros programas que mantêm o yt-dlp.exe em uso durante a atualização.",
-    "Restringe a detecção de aplicativos a fechar aos arquivos executáveis e bibliotecas do YouTube Offline, preservando ferramentas externas em execução.",
-    "Elimina definitivamente a instalação automática na inicialização: o programa apenas verifica atualizações e não fecha sem solicitação.",
-    "Adiciona verificações reais no Windows: abertura e permanência do processo, API local, métricas de CPU/memória e reinstalação com yt-dlp bloqueado.",
-    "Bloqueia a publicação se o teste de reinstalação com ferramenta bloqueada falhar.",
-    "Mantém o mecanismo de downloads e as demais funcionalidades da 0.5.18."
+    "Introduz 10 estratégias automáticas para vídeos e 10 para áudios, com variações de extração, cache, rede, IPv4, formatos e HLS.",
+    "Mostra qual estratégia está em execução e o número da tentativa.",
+    "Em playlists, salva os itens concluídos em um arquivo de controle e evita rebaixá-los durante novas tentativas.",
+    "Não informa sucesso completo quando restam itens com falhas: sinaliza resultado parcial.",
+    "Interrompe tentativas diante de restrições de acesso, DRM, autenticação obrigatória e limite temporário de solicitações (429).",
+    "Mantém cancelamento, formatos, qualidade configurada, biblioteca offline e atualização pelo aplicativo.",
+    "Validação automatizada dos perfis de recuperação e testes Windows de abertura e reinstalação."
   ]
 }
