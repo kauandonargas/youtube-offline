@@ -1,18 +1,18 @@
 {
   "schemaVersion": 1,
   "product": "YouTube Offline",
-  "version": "0.5.20",
-  "publishedAt": "2026-10-21T04:42:02Z",
-  "installerUrl": "https://github.com/kauandonargas/youtube-offline/releases/download/v0.5.20/YouTube-Offline-Setup-0.5.20-x64.exe",
-  "sha256": "f2873615e1d9cc4e575431eaff5d04b44a2d5cfd72b95c7f38a9168577ef24aa",
+  "version": "0.5.21",
+  "publishedAt": "2026-10-21T14:41:29Z",
+  "installerUrl": "https://github.com/kauandonargas/youtube-offline/releases/download/v0.5.21/YouTube-Offline-Setup-0.5.21-x64.exe",
+  "sha256": "4735d186c5a4544fa5caf44d1fd789b52205ae77f7f978d63cdf45445fb5e134",
   "mandatory": false,
   "notes": [
-    "Introduz 10 estratégias automáticas para vídeos e 10 para áudios, com variações de extração, cache, rede, IPv4, formatos e HLS.",
-    "Mostra qual estratégia está em execução e o número da tentativa.",
-    "Em playlists, salva os itens concluídos em um arquivo de controle e evita rebaixá-los durante novas tentativas.",
-    "Não informa sucesso completo quando restam itens com falhas: sinaliza resultado parcial.",
-    "Interrompe tentativas diante de restrições de acesso, DRM, autenticação obrigatória e limite temporário de solicitações (429).",
-    "Mantém cancelamento, formatos, qualidade configurada, biblioteca offline e atualização pelo aplicativo.",
-    "Validação automatizada dos perfis de recuperação e testes Windows de abertura e reinstalação."
+    "Motor de diagnóstico compartilhado com o Site Media Downloader: diferencia falha de formato, rede, HTTP 403, Cloudflare, CAPTCHA, autenticação, limite 429 e DRM.",
+    "A análise e o download agora aceitam opcionalmente uma sessão autorizada do Edge, Chrome, Firefox ou Brave; o padrão continua sem cookies.",
+    "Abre o link no navegador padrão para permitir verificações manuais legítimas.",
+    "Não declara sucesso quando um arquivo novo não foi confirmado no disco; playlists preservam o controle dos itens concluídos.",
+    "Mantém o sistema existente de recuperação, cancelamento, formatos e atualização.",
+    "Não desbloqueia vídeos protegidos, conteúdo pago sem acesso ou desafios CAPTCHA de forma automática.",
+    "Inclui novos testes automatizados das decisões de diagnóstico."
   ]
 }
