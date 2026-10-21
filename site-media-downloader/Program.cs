@@ -70,7 +70,7 @@ public sealed class MainWindow : Form
                 CoreWebView2HostResourceAccessKind.DenyCors);
             core.Navigate("https://site-media.local/index.html");
             core.NavigationCompleted += (_, _) =>
-                Send("ready", new { folder = _folder, version = "0.2.0" });
+                Send("ready", new { folder = _folder, version = "0.3.0" });
         }
         catch (Exception ex)
         {
