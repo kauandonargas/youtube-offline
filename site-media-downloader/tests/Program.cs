@@ -81,7 +81,8 @@ Check(MediaCore.DirectMediaTransport.GuessExtension(capturedVideo!) == ".mp4", "
 
 // Teste funcional real do caminho HTTP independente do yt-dlp,
 // usando um servidor local controlado, sem depender de serviços externos.
-using (var server = new TcpListener(IPAddress.Loopback, 0))
+var server = new TcpListener(IPAddress.Loopback, 0);
+
 {
     server.Start();
     int port = ((IPEndPoint)server.LocalEndpoint).Port;
