@@ -68,7 +68,7 @@ public sealed class MainWindow : Form
                 CoreWebView2HostResourceAccessKind.DenyCors);
             core.Navigate("https://site-media.local/index.html");
             core.NavigationCompleted += (_, _) =>
-                Send("ready", new { folder = _folder, version = "0.1.0" });
+                Send("ready", new { folder = _folder, version = "0.2.0" });
         }
         catch (Exception ex)
         {
@@ -111,6 +111,14 @@ public sealed class MainWindow : Form
                 Process.Start(start);
                 return;
             }
+            if (type == "open-page")
+            {
+                string page = root.TryGetProperty("url", out var pageElement) ? pageElement.GetString() ?? "" : "";
+                if (!DownloadEngine.IsMediaUrl(page))
+                    throw new ArgumentException("Link da página inválido.");
+                Process.Start(new ProcessStartInfo(page) { UseShellExecute = true });
+                return;
+            }
             if (type == "cancel")
             {
                 _active?.Cancel();
@@ -132,7 +140,9 @@ public sealed class MainWindow : Form
                 return;
             }
 
-            var settings = new DownloadEngine.DownloadSettings(url, _folder, mode == "audio", quality, audioFormat);
+            var browser = root.TryGetProperty("browser", out var b) ? b.GetString() : "none";
+            var settings = new DownloadEngine.DownloadSettings(
+                url, _folder, mode == "audio", quality, audioFormat, MediaCore.MediaDiagnostics.NormalizeBrowser(browser));
             _active = new CancellationTokenSource();
             var token = _active.Token;
             Send("started", new { url });
