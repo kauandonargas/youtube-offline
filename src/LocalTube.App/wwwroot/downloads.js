@@ -10,6 +10,7 @@
       case 'queued': return 'Na fila';
       case 'preparing': return 'Preparando';
       case 'downloading': return `${Math.round(progress || 0)}%`;
+      case 'partial': return 'Parcial';
       case 'cancelling': return 'Cancelando…';
       case 'completed': return 'Concluído';
       case 'cancelled': return 'Cancelado';
@@ -233,7 +234,8 @@
         const currentTitle = job.isPlaylist && item.title && item.title !== 'Playlist' && item.title !== job.url
           ? item.title
           : '';
-        const detail = item.error || [position, item.speed, item.eta ? `restam ${item.eta}` : ''].filter(Boolean).join(' • ');
+        const strategy = item.strategy && activeStatuses.has(status) ? `Método ${item.attempt || 1}/${item.attemptTotal || 1}: ${item.strategy}` : '';
+        const detail = [strategy, item.error || [position, item.speed, item.eta ? `restam ${item.eta}` : ''].filter(Boolean).join(' • ')].filter(Boolean).join(' • ');
         const cancellable = activeStatuses.has(item.status || status);
 
         return `<article class="download-job-card ${escapeHtml(status)}">
