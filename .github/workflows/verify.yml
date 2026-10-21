@@ -25,6 +25,10 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
+      - name: Testar matriz de recuperacao sem rede
+        shell: pwsh
+        run: dotnet run --configuration Release --project .\tests\DownloadRecoveryTests\DownloadRecoveryTests.csproj
+
       - name: Guardas de regressao
         shell: pwsh
         run: .\tests\check-source-guards.ps1
