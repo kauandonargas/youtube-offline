@@ -10,7 +10,7 @@ O aplicativo só acessa os links fornecidos durante o uso. Os arquivos ficam no 
 
 ## Instalação
 
-Baixe o Setup EXE da versão `site-media-v0.2.0`. Não substitui nem modifica o **YouTube Offline**.
+Baixe o Setup EXE da versão `site-media-v0.3.0`. Não substitui nem modifica o **YouTube Offline**.
 
 Os arquivos são salvos inicialmente em `Vídeos\Site Media Downloader`, mas você pode selecionar outra pasta.
 
