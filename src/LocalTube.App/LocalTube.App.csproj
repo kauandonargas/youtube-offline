@@ -17,6 +17,8 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../shared/MediaDiagnostics.cs" Link="MediaDiagnostics.cs" />
+    <Compile Include="../../shared/BrowserMediaClassifier.cs" Link="BrowserMediaClassifier.cs" />
+    <Compile Include="../../shared/BrowserMediaWindow.cs" Link="BrowserMediaWindow.cs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2210.55" />
