@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using MediaCore;
 
 namespace LocalTube;
 
@@ -32,7 +33,7 @@ public sealed class YtDlpService
     public IReadOnlyCollection<DownloadJob> Jobs => _jobs.Values.OrderByDescending(x => x.CreatedAt).ToArray();
     public object GetToolStatus() => _tools.GetStatus();
 
-    // cookieBrowser permanece na assinatura por compatibilidade com a API existente.
+    // Importação de sessão somente quando o usuário escolhe explicitamente um navegador.
     public async Task<object> AnalyzeAsync(string url, string cookieBrowser = "none")
     {
         ValidateUrl(url);
@@ -43,10 +44,10 @@ public sealed class YtDlpService
         {
             "--ignore-config",
             "--js-runtimes", $"deno:{deno}",
-            "--dump-single-json", "--flat-playlist", "--no-warnings", "--no-colors", url
-        }, TimeSpan.FromSeconds(120));
+            "--dump-single-json", "--flat-playlist", "--no-warnings", "--no-colors"
+        }.Concat(BrowserArgs(cookieBrowser)).Append(url), TimeSpan.FromSeconds(120));
         if (flat.ExitCode != 0)
-            throw new InvalidOperationException(CleanError(flat.Error));
+            throw new InvalidOperationException(ExplainError(flat.Error));
 
         using var flatDoc = JsonDocument.Parse(flat.Output);
         var flatRoot = flatDoc.RootElement;
@@ -57,10 +58,10 @@ public sealed class YtDlpService
         {
             "--ignore-config",
             "--js-runtimes", $"deno:{deno}",
-            "-J", "--no-playlist", "--no-warnings", "--no-colors", url
-        }, TimeSpan.FromSeconds(120));
+            "-J", "--no-playlist", "--no-warnings", "--no-colors"
+        }.Concat(BrowserArgs(cookieBrowser)).Append(url), TimeSpan.FromSeconds(120));
         if (result.ExitCode != 0)
-            throw new InvalidOperationException(CleanError(result.Error));
+            throw new InvalidOperationException(ExplainError(result.Error));
 
         using var doc = JsonDocument.Parse(result.Output);
         var r = doc.RootElement;
@@ -76,6 +77,19 @@ public sealed class YtDlpService
             itemCount = 1,
             entries = Array.Empty<object>()
         };
+    }
+
+    private static IEnumerable<string> BrowserArgs(string? browser)
+    {
+        string selected = MediaDiagnostics.NormalizeBrowser(browser);
+        return selected == "none" ? Array.Empty<string>() : ["--cookies-from-browser", selected];
+    }
+
+    private static string ExplainError(string error)
+    {
+        var diagnosis = MediaDiagnostics.Classify(error);
+        return diagnosis.Code == "unknown" ? CleanError(error)
+            : diagnosis.Message + " Detalhe técnico: " + CleanError(error);
     }
 
     public Task<DownloadJob> StartAsync(DownloadRequest req)
@@ -187,31 +201,30 @@ public sealed class YtDlpService
                 var result = await RunDownloadProcessAsync(tool, args, job, item, cts.Token);
                 archived = CountArchiveEntries(archivePath);
                 var reportedErrors = DownloadRecovery.CountErrors(result.Error);
+                var diagnosis = MediaDiagnostics.Classify(result.Error);
+                item.FailureCode = diagnosis.Code;
                 bool missingFromPlaylist = req.Playlist && job.TotalItems > 0 && archived < job.TotalItems;
                 lastError = CleanError(result.Error);
 
-                if (result.ExitCode == 0 && reportedErrors == 0 && !missingFromPlaylist)
+                if (result.ExitCode == 0 && reportedErrors == 0 && !missingFromPlaylist &&
+                    (result.ConfirmedFiles > 0 || (req.Playlist && archived > 0)))
                 {
+                    item.FailureCode = "";
                     succeeded = true;
                     break;
                 }
 
-                // Não repetir vídeos privados, pagos, protegidos ou pedidos de
-                // autenticação. Mudar a estratégia não concede acesso.
-                if (DownloadRecovery.IsRestricted(result.Error))
+                // Decisões de acesso, CAPTCHA, DRM, 429 e indisponibilidade
+                // são compartilhadas com o aplicativo de outros sites.
+                if (diagnosis.Stop)
                 {
                     if (req.Playlist && archived > 0) break;
-                    throw new InvalidOperationException(
-                        "Este conteúdo exige acesso/autenticação ou não está disponível. Não é possível recuperá-lo automaticamente. " + lastError);
+                    throw new InvalidOperationException(diagnosis.Message);
                 }
-
-                // Rate limit é um bloqueio temporário: repetir dez métodos
-                // consecutivos agravaria o bloqueio do serviço.
-                if (DownloadRecovery.IsRateLimited(result.Error))
+                if (diagnosis.Code == "cloudflare" && attempt > 0)
                 {
                     if (req.Playlist && archived > 0) break;
-                    throw new InvalidOperationException(
-                        "O YouTube limitou temporariamente as solicitações (HTTP 429). Aguarde antes de tentar novamente.");
+                    throw new InvalidOperationException(diagnosis.Message);
                 }
 
                 // Reinstalar o extrator apenas uma vez, depois de terminar o
@@ -226,7 +239,7 @@ public sealed class YtDlpService
 
                 if (attempt + 1 < profiles.Count)
                 {
-                    item.Error = $"Método {attempt + 1} falhou. Próximo: {profiles[attempt + 1].Label}. {lastError}";
+                    item.Error = $"{diagnosis.Message} Próximo método: {profiles[attempt + 1].Label}. {lastError}";
                     await Task.Delay(TimeSpan.FromSeconds(Math.Min(1 + attempt, 5)), cts.Token);
                 }
             }
@@ -241,7 +254,7 @@ public sealed class YtDlpService
                     job.FailedItems = Math.Max(1, job.TotalItems - archived);
                     job.Status = "partial";
                     item.Status = "partial";
-                    item.Error = $"Baixados {archived} de {job.TotalItems} itens. Alguns vídeos não foram recuperados. {lastError}";
+                    item.Error = $"Baixados {archived} de {job.TotalItems} itens. {MediaDiagnostics.Classify(lastError).Message} {lastError}";
                     item.Speed = "";
                     item.Eta = "";
                     job.Progress = job.TotalItems > 0 ? Math.Min(100, archived * 100d / job.TotalItems) : 0;
@@ -249,7 +262,7 @@ public sealed class YtDlpService
                     return;
                 }
                 throw new InvalidOperationException(
-                    $"Todas as {profiles.Count} estratégias falharam. Último erro: {lastError}");
+                    $"Todas as {profiles.Count} estratégias falharam. {MediaDiagnostics.Classify(lastError).Message} Último erro: {lastError}");
             }
 
             item.Progress = 100;
@@ -286,6 +299,7 @@ public sealed class YtDlpService
             item.Speed = "";
             item.Eta = "";
             item.Error = ex.Message;
+            item.FailureCode = MediaDiagnostics.Classify(ex.Message).Code;
 
             job.Status = "failed";
             job.FailedItems = 1;
@@ -297,7 +311,7 @@ public sealed class YtDlpService
         }
     }
 
-    private async Task<(int ExitCode, string Error)> RunDownloadProcessAsync(
+    private async Task<(int ExitCode, string Error, int ConfirmedFiles)> RunDownloadProcessAsync(
         string tool,
         IReadOnlyList<string> args,
         DownloadJob job,
@@ -318,9 +332,10 @@ public sealed class YtDlpService
         process.Start();
         _activeProcesses[item.Id] = process;
 
-        var stdoutTask = ConsumeAsync(process.StandardOutput, job, item);
+        var confirmed = new ConcurrentBag<string>();
+        var stdoutTask = ConsumeAsync(process.StandardOutput, job, item, null, confirmed, _store.Settings.LibraryFolder);
         var stderr = new StringBuilder();
-        var stderrTask = ConsumeAsync(process.StandardError, job, item, stderr);
+        var stderrTask = ConsumeAsync(process.StandardError, job, item, stderr, confirmed, _store.Settings.LibraryFolder);
 
         try
         {
@@ -338,7 +353,7 @@ public sealed class YtDlpService
         }
 
         await Task.WhenAll(stdoutTask, stderrTask);
-        return (process.ExitCode, stderr.ToString());
+        return (process.ExitCode, stderr.ToString(), confirmed.Count);
     }
 
     private static int CountArchiveEntries(string? file)
@@ -363,6 +378,7 @@ public sealed class YtDlpService
             "--socket-timeout", "30",
             "--continue",
             "--write-info-json", "--write-thumbnail",
+            "--print", "after_move:FILE_DONE:%(filepath)s",
             "--progress-template", "download:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s",
             "-o", output
         };
@@ -414,17 +430,31 @@ public sealed class YtDlpService
         }
 
         args.AddRange(profile.ExtraArgs);
+        args.AddRange(BrowserArgs(req.CookieBrowser));
         args.Add(req.Url);
         return args;
     }
 
-    private static async Task ConsumeAsync(StreamReader reader, DownloadJob job, DownloadItemJob item, StringBuilder? capture = null)
+    private static async Task ConsumeAsync(StreamReader reader, DownloadJob job, DownloadItemJob item,
+        StringBuilder? capture = null, ConcurrentBag<string>? confirmed = null, string? library = null)
     {
         string? line;
         while ((line = await reader.ReadLineAsync()) is not null)
         {
             capture?.AppendLine(line);
             var trimmed = line.Trim();
+            if (trimmed.StartsWith("FILE_DONE:", StringComparison.Ordinal))
+            {
+                TryConfirm(trimmed["FILE_DONE:".Length..].Trim(), confirmed, library);
+                continue;
+            }
+            if (trimmed.StartsWith("[download] ", StringComparison.OrdinalIgnoreCase) &&
+                trimmed.Contains(" has already been downloaded", StringComparison.OrdinalIgnoreCase))
+            {
+                var actual = trimmed["[download] ".Length..];
+                var end = actual.IndexOf(" has already been downloaded", StringComparison.OrdinalIgnoreCase);
+                if (end > 0) TryConfirm(actual[..end], confirmed, library);
+            }
 
             var playlistMatch = PlaylistItemRegex.Match(trimmed);
             if (playlistMatch.Success &&
@@ -458,6 +488,21 @@ public sealed class YtDlpService
                     item.Title = title;
             }
         }
+    }
+
+    private static void TryConfirm(string path, ConcurrentBag<string>? confirmed, string? library)
+    {
+        if (confirmed is null || string.IsNullOrWhiteSpace(library)) return;
+        try
+        {
+            string root = Path.GetFullPath(library).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            string file = Path.GetFullPath(Path.IsPathRooted(path) ? path : Path.Combine(library, path));
+            if (file.StartsWith(root, StringComparison.OrdinalIgnoreCase) &&
+                File.Exists(file) && new FileInfo(file).Length > 0)
+                confirmed.Add(file);
+        }
+        catch (IOException) { }
+        catch (ArgumentException) { }
     }
 
     private static bool IsHttp403(string error) =>

@@ -94,6 +94,7 @@ public sealed class DownloadItemJob
     public string Speed { get; set; } = "";
     public string Eta { get; set; } = "";
     public string? Error { get; set; }
+    public string FailureCode { get; set; } = "";
     public int Attempt { get; set; }
     public int AttemptTotal { get; set; }
     public string Strategy { get; set; } = "";

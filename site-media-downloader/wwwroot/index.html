@@ -81,7 +81,7 @@
   <div class="wrap">
     <header class="top">
       <div class="brand"><div class="logo">↧</div><span>Site Media <span style="color:var(--mint)">Downloader</span></span></div>
-      <div class="badge">APP PARA WINDOWS · <span id="appVersion">0.1.0</span></div>
+      <div class="badge">APP PARA WINDOWS · <span id="appVersion">0.2.0</span></div>
     </header>
 
     <section class="hero">
@@ -123,6 +123,18 @@
           </div>
         </div>
 
+        <div style="border:1px solid #384753;border-radius:13px;padding:16px;margin:0 0 20px;background:#101923">
+          <label class="field" for="browser">Sessão autorizada do navegador (opcional)</label>
+          <select id="browser">
+            <option value="none">Não usar dados de sessão (recomendado)</option>
+            <option value="edge">Microsoft Edge</option>
+            <option value="chrome">Google Chrome</option>
+            <option value="firefox">Mozilla Firefox</option>
+            <option value="brave">Brave</option>
+          </select>
+          <p style="font-size:11px;line-height:1.55;color:#a2b5c3;margin:10px 0 4px">Somente quando você escolher: o mecanismo poderá ler os cookies do navegador selecionado para acessar conteúdo permitido à sua conta. Não armazena esses cookies no aplicativo. Pode ser necessário fechar o navegador antes de tentar.</p>
+          <button type="button" class="link-button" id="openPage">Abrir página no navegador ↗</button>
+        </div>
         <label class="field">Onde salvar</label>
         <div class="destination">
           <div class="folder-ico">▤</div>
@@ -211,8 +223,9 @@
     $('progressPct').textContent = '0%';
     $('speed').textContent = '';
     setBusy(true);
-    send('start', { url:url, mode:mode, quality:$('quality').value, audioFormat:$('audioFormat').value });
+    send('start', { url:url, mode:mode, quality:$('quality').value, audioFormat:$('audioFormat').value, browser:$('browser').value });
   });
+  $('openPage').addEventListener('click', function() { var u = $('url').value.trim(); if (u) send('open-page', {url:u}); });
   $('cancel').addEventListener('click', function () { send('cancel'); showState('Cancelando...', 'Encerrando a tentativa em andamento.', 'active'); });
   $('chooseFolder').addEventListener('click', function () { send('choose-folder'); });
   $('openFolder').addEventListener('click', function () { send('open-folder'); });
@@ -223,7 +236,7 @@
       case 'ready':
         $('folder').textContent = data.folder || '';
         $('folder').title = data.folder || '';
-        $('appVersion').textContent = data.version || '0.1.0';
+        $('appVersion').textContent = data.version || '0.2.0';
         break;
       case 'folder':
         $('folder').textContent = data.folder || '';
@@ -245,6 +258,10 @@
         break;
       case 'title':
         $('mediaTitle').textContent = data.title || 'Baixando mídia...';
+        break;
+      case 'diagnosis':
+        $('detail').textContent = (data.message || 'Falha detectada.') +
+          (data.browserSuggested ? ' Você pode abrir a página no navegador e, caso tenha autorização, escolher sua sessão acima.' : '');
         break;
       case 'notice':
         $('detail').textContent = data.text || '';
