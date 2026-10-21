@@ -1,0 +1,108 @@
+name: Build Site Media Downloader Windows
+
+on:
+  pull_request:
+    branches: [main]
+    paths: ['site-media-downloader/**', '.github/workflows/site-media-downloader.yml']
+  push:
+    branches: [main]
+    paths: ['site-media-downloader/**', '.github/workflows/site-media-downloader.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Testar reconhecimento de páginas e estratégias
+        shell: pwsh
+        run: dotnet run --project site-media-downloader/tests/MediaTests.csproj --configuration Release
+
+      - name: Compilar aplicativo Windows independente
+        shell: pwsh
+        run: |
+          dotnet publish site-media-downloader/SiteMediaDownloader.csproj -c Release -r win-x64 --self-contained true -o site-media-downloader/dist/SiteMediaDownloader
+          if ($LASTEXITCODE -ne 0) { throw "Erro no build Windows" }
+          if (-not (Test-Path site-media-downloader/dist/SiteMediaDownloader/SiteMediaDownloader.exe)) { throw "Executável não gerado" }
+
+      - name: Cache mensal das ferramentas
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}\site-media-tools
+          key: site-media-tools-${{ runner.os }}-2026-10
+
+      - name: Empacotar yt-dlp, Deno e FFmpeg
+        shell: pwsh
+        run: |
+          $tools = "${{ runner.temp }}\site-media-tools"
+          ./scripts/fetch-tools.ps1 -TargetDir $tools
+          if ($LASTEXITCODE -ne 0) { throw "Falha preparando ferramentas de mídia" }
+          $dest = "site-media-downloader/dist/SiteMediaDownloader/tools"
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          foreach ($name in @("yt-dlp.exe", "ffmpeg.exe", "ffprobe.exe", "deno.exe")) {
+            if (-not (Test-Path "$tools/$name")) { throw "Ferramenta ausente: $name" }
+            Copy-Item "$tools/$name" "$dest/$name" -Force
+          }
+
+      - name: Instalar Inno Setup
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+
+      - name: Montar instalador
+        shell: pwsh
+        run: |
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { throw "Inno Setup não localizado" }
+          & $iscc "/DMyAppVersion=0.1.0" "site-media-downloader/installer/SiteMediaDownloader.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Falha gerando Setup.exe" }
+          $file = "site-media-downloader/dist/installer/Site-Media-Downloader-Setup-0.1.0-x64.exe"
+          if (-not (Test-Path $file)) { throw "Instalador não encontrado" }
+          $sha = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$sha  Site-Media-Downloader-Setup-0.1.0-x64.exe" | Set-Content -Path "$file.sha256" -Encoding ascii
+          Write-Host "SHA256=$sha"
+
+      - name: Verificar instalação silenciosa
+        shell: pwsh
+        run: |
+          $setup = (Resolve-Path "site-media-downloader/dist/installer/Site-Media-Downloader-Setup-0.1.0-x64.exe").Path
+          $destination = "$env:RUNNER_TEMP\Site Media Downloader"
+          $proc = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", ('/DIR="{0}"' -f $destination) -Wait -PassThru
+          if ($proc.ExitCode -ne 0) { throw "Falha de instalação: $($proc.ExitCode)" }
+          foreach ($file in @("SiteMediaDownloader.exe","wwwroot\index.html","tools\yt-dlp.exe","tools\ffmpeg.exe")) {
+            if (-not (Test-Path (Join-Path $destination $file))) { throw "Arquivo não instalado: $file" }
+          }
+
+      - name: Disponibilizar instalador para testes
+        uses: actions/upload-artifact@v4
+        with:
+          name: Site-Media-Downloader-0.1.0-Windows
+          path: |
+            site-media-downloader/dist/installer/*.exe
+            site-media-downloader/dist/installer/*.sha256
+          if-no-files-found: error
+
+      - name: Publicar release independente
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "site-media-v0.1.0"
+          $exe = "site-media-downloader/dist/installer/Site-Media-Downloader-Setup-0.1.0-x64.exe"
+          $sha = "$exe.sha256"
+          gh release view $tag --repo "${{ github.repository }}" *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag $exe $sha --repo "${{ github.repository }}" --clobber
+          } else {
+            gh release create $tag $exe $sha --repo "${{ github.repository }}" --title "Site Media Downloader 0.1.0" --notes "App Windows independente para links de páginas de sites. yt-dlp, FFmpeg, perfis de recuperação, descoberta HTML5. Não altera o YouTube Offline. Alguns sites exigem login, CAPTCHA ou DRM."
+          }
