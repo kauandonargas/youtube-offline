@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; connect-src 'none'; object-src 'none'; base-uri 'none'">
+  <title>Site Media Downloader</title>
+  <style>
+    :root{color-scheme:dark;--page:#0e1118;--surface:#161b26;--surface2:#1e2532;--line:#2c3444;--text:#f3f6fa;--muted:#98a5ba;--mint:#84e2bd;--mint-dark:#52cda2;--orange:#ffbf80;--shadow:0 28px 70px #0005;font-family:Inter,"Segoe UI",system-ui,sans-serif}
+    *{box-sizing:border-box}
+    html,body{margin:0;min-width:640px;min-height:100%;background:var(--page);color:var(--text)}
+    body{background:radial-gradient(ellipse 750px 370px at 84% -110px,#1b4e4760,transparent),radial-gradient(ellipse 550px 420px at -160px 80%,#293a6652,transparent),#0e1118}
+    button,input,select{font:inherit}
+    button{cursor:pointer}
+    button:disabled{opacity:.48;cursor:default}
+    .wrap{max-width:1120px;margin:0 auto;padding:28px 32px 52px}
+    .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:52px}
+    .brand{display:flex;align-items:center;gap:12px;font-size:17px;font-weight:750;letter-spacing:-.4px}
+    .logo{width:39px;height:39px;border-radius:13px;display:grid;place-items:center;background:linear-gradient(130deg,#b9f3dc,#65bda5);box-shadow:0 10px 32px #5dcb9e27;color:#102820;font-size:21px;font-weight:850}
+    .badge{font-size:11px;font-weight:700;letter-spacing:.07em;color:#b5f9d8;padding:9px 12px;border:1px solid #365e53;background:#15342f;border-radius:30px}
+    .hero{max-width:800px;margin-bottom:30px}
+    .eyebrow{display:flex;align-items:center;gap:9px;text-transform:uppercase;color:var(--mint);font-size:12px;letter-spacing:.15em;font-weight:780;margin-bottom:15px}
+    .eyebrow i{width:7px;height:7px;border-radius:50%;background:var(--mint);box-shadow:0 0 0 5px #84e2bd16}
+    h1{font-size:clamp(34px,4.2vw,51px);font-weight:780;letter-spacing:-2.5px;line-height:1.1;margin:0 0 13px}
+    h1 em{font-style:normal;color:var(--mint)}
+    .lead{font-size:16px;line-height:1.7;color:#abb8ca;max-width:650px;margin:0}
+    .main{display:grid;grid-template-columns:minmax(0,1fr) 324px;gap:20px;align-items:start}
+    .panel{background:linear-gradient(145deg,#1a202b,#141923);border:1px solid #2c3443;box-shadow:var(--shadow);border-radius:22px;padding:28px}
+    .panel-head{display:flex;justify-content:space-between;gap:15px;align-items:center;margin-bottom:24px}
+    h2{font-size:17px;letter-spacing:-.4px;margin:0}
+    .panel-sub{color:var(--muted);font-size:12px}
+    .field{display:block;color:#dbe5ef;font-size:13px;font-weight:660;margin:0 0 9px}
+    .url-wrap{position:relative;margin-bottom:21px}
+    .url-icon{position:absolute;top:16px;left:15px;color:#95a5b8;font-size:19px}
+    .input{width:100%;color:#eef7f7;background:#0f141d;border:1px solid #384253;outline:0;border-radius:13px;padding:16px 15px 16px 46px;font-size:14px;transition:border-color .15s,box-shadow .15s}
+    .input:focus,select:focus{border-color:#84e2bd;box-shadow:0 0 0 3px #84e2bd17}
+    .input::placeholder{color:#6f7c8e}
+    .type-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:8px 0 24px}
+    .type{background:#111722;border:1px solid #343d4b;border-radius:14px;color:#e8edf5;display:flex;align-items:center;gap:11px;padding:17px 14px;text-align:left;transition:.15s}
+    .type:hover{border-color:#5c736e}
+    .type.selected{border-color:#87dfb9;box-shadow:0 0 0 1px #87dfb92d inset;background:linear-gradient(135deg,#1d3a34,#17232a)}
+    .type-symbol{width:38px;height:38px;display:grid;place-items:center;background:#313c49;border-radius:11px;font-size:19px}
+    .type.selected .type-symbol{color:#0f2921;background:#8fe7c0}
+    .type-name{display:block;font-size:14px;font-weight:760}
+    .type-help{display:block;color:#93a1b2;font-size:11px;margin-top:3px}
+    .settings{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px}
+    select{appearance:none;background:#0f141d url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23a3b3c8' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 14px center;background-size:18px;border:1px solid #384253;border-radius:12px;color:#e9edf5;padding:13px 35px 13px 14px;outline:0;width:100%}
+    .destination{padding:14px 15px;background:#101722;border-radius:13px;border:1px solid #343d4b;display:flex;align-items:center;gap:12px}
+    .folder-ico{width:38px;height:38px;background:#283a42;color:#90e8c7;display:grid;place-items:center;font-size:19px;border-radius:11px;flex-shrink:0}
+    .destination-info{min-width:0;flex:1}.destination-info small{font-size:11px;color:#8896aa;display:block;margin-bottom:3px}
+    .destination-info strong{font-size:12px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .link-button{background:none;border:none;color:var(--mint);font-size:12px;font-weight:750;padding:5px 0}
+    .actions{display:flex;gap:10px;margin-top:23px}
+    .primary{background:linear-gradient(135deg,#a2f4c8,#73dfb6);color:#123127;font-size:14px;font-weight:800;padding:16px 20px;border-radius:12px;border:0;flex:1;transition:transform .15s}
+    .primary:not(:disabled):hover{transform:translateY(-1px)}
+    .secondary{background:#263041;border:1px solid #3b495a;border-radius:12px;color:#e7f0f7;padding:14px 19px;font-weight:700;display:none}
+    .secondary.show{display:block}
+    .under{color:#8595a9;font-size:11px;margin-top:14px;line-height:1.55}
+    .side{display:flex;flex-direction:column;gap:19px}
+    .side-card{background:#151a24;border:1px solid #293443;border-radius:20px;padding:21px}
+    .side-card h3{font-size:15px;margin:0 0 17px;letter-spacing:-.2px}
+    .state-pill{display:inline-flex;align-items:center;gap:7px;color:#b1c0d0;font-size:11px;background:#242e3d;border-radius:8px;padding:7px 9px;margin-bottom:16px}
+    .dot{width:7px;height:7px;background:#95a5bb;border-radius:50%}
+    .dot.active{background:var(--mint);box-shadow:0 0 0 4px #84e2bd16}
+    .dot.error{background:#ff978d}
+    .file-title{font-size:14px;font-weight:750;overflow-wrap:anywhere;line-height:1.45;min-height:41px}
+    .status-desc{font-size:12px;color:#9cacbf;line-height:1.6;margin-top:10px;overflow-wrap:anywhere;white-space:pre-wrap;max-height:160px;overflow-y:auto}
+    .bar{height:8px;border-radius:20px;background:#2d3747;overflow:hidden;margin-top:22px}
+    .bar-inner{height:100%;width:0;background:linear-gradient(90deg,#65c9b4,#a0f0bc);border-radius:20px;transition:width .25s}
+    .rate{display:flex;justify-content:space-between;font-size:11px;color:#97a7bc;margin-top:10px}
+    .info-row{display:flex;gap:11px;align-items:flex-start;padding:12px 0;border-top:1px solid #2d3544;color:#9bacc0;font-size:12px;line-height:1.5}
+    .info-row:first-of-type{border-top:0;padding-top:0}
+    .count{flex:0 0 25px;display:grid;place-items:center;height:25px;border-radius:8px;background:#243e37;color:var(--mint);font-weight:800;font-size:12px}
+    .footer{border-top:1px solid #2b3442;margin-top:32px;padding-top:22px;display:flex;justify-content:space-between;gap:20px;font-size:11px;color:#7e8da1}
+    .footer strong{color:#a9bdc9}
+    @media(max-width:920px){.main{grid-template-columns:1fr}.side{display:grid;grid-template-columns:1fr 1fr}.top{margin-bottom:32px}.wrap{padding:24px}}
+    @media(max-width:720px){.side{grid-template-columns:1fr}.settings{grid-template-columns:1fr}.type-grid{grid-template-columns:1fr}h1{font-size:34px}.panel{padding:19px}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="top">
+      <div class="brand"><div class="logo">↧</div><span>Site Media <span style="color:var(--mint)">Downloader</span></span></div>
+      <div class="badge">APP PARA WINDOWS · <span id="appVersion">0.1.0</span></div>
+    </header>
+
+    <section class="hero">
+      <div class="eyebrow"><i></i> Sua central de mídia offline</div>
+      <h1>Da página do site<br>para <em>seu computador.</em></h1>
+      <p class="lead">Cole o endereço de uma página com vídeo ou áudio. O aplicativo tenta identificar a mídia, baixar e recuperar automaticamente falhas comuns.</p>
+    </section>
+
+    <main class="main">
+      <div class="panel">
+        <div class="panel-head"><h2>Novo download</h2><span class="panel-sub">Nenhum cadastro necessário</span></div>
+        <label class="field" for="url">Endereço da página</label>
+        <div class="url-wrap">
+          <span class="url-icon">↗</span>
+          <input class="input" id="url" type="url" autocomplete="off" spellcheck="false" placeholder="https://site.com/pagina-com-video">
+        </div>
+
+        <label class="field">O que você quer salvar?</label>
+        <div class="type-grid">
+          <button class="type selected" type="button" data-mode="video" aria-pressed="true">
+            <span class="type-symbol">▶</span>
+            <span><span class="type-name">Vídeo</span><span class="type-help">Imagem e som no arquivo</span></span>
+          </button>
+          <button class="type" type="button" data-mode="audio" aria-pressed="false">
+            <span class="type-symbol">♫</span>
+            <span><span class="type-name">Só o áudio</span><span class="type-help">Música, aula, podcast</span></span>
+          </button>
+        </div>
+
+        <div class="settings">
+          <div id="qualityWrap"><label class="field" for="quality">Qualidade máxima</label>
+            <select id="quality"><option value="best">Melhor disponível</option><option value="2160">Até 4K (2160p)</option><option value="1440">Até 1440p</option><option value="1080">Até 1080p</option><option value="720">Até 720p</option><option value="480">Até 480p</option><option value="360">Até 360p</option></select>
+          </div>
+          <div id="formatWrap" style="display:none"><label class="field" for="audioFormat">Formato do áudio</label>
+            <select id="audioFormat"><option value="original">Original / melhor</option><option value="mp3">MP3</option><option value="m4a">M4A</option><option value="opus">Opus</option></select>
+          </div>
+          <div><label class="field" for="strategyInfo">Estratégias automáticas</label>
+            <select id="strategyInfo" disabled><option>Automático (até 11 métodos)</option></select>
+          </div>
+        </div>
+
+        <label class="field">Onde salvar</label>
+        <div class="destination">
+          <div class="folder-ico">▤</div>
+          <div class="destination-info"><small>Pasta de destino</small><strong id="folder">Aguardando o aplicativo...</strong></div>
+          <button class="link-button" id="chooseFolder" type="button">Alterar</button>
+        </div>
+
+        <div class="actions">
+          <button class="primary" id="start" type="button">↓ &nbsp; Baixar mídia da página</button>
+          <button class="secondary" id="cancel" type="button">Cancelar</button>
+        </div>
+        <div class="under">Para páginas públicas e conteúdos que você tem permissão para salvar. Alguns sites exigem login, CAPTCHA ou DRM e não permitem extração automática.</div>
+      </div>
+
+      <aside class="side">
+        <section class="side-card">
+          <h3>Atividade</h3>
+          <div class="state-pill"><span class="dot" id="stateDot"></span><span id="stateLabel">Pronto para começar</span></div>
+          <div class="file-title" id="mediaTitle">Seu próximo download aparece aqui.</div>
+          <div class="status-desc" id="detail">Cole o link completo da página. Não precisa encontrar a URL do arquivo de vídeo.</div>
+          <div class="bar"><div class="bar-inner" id="progressBar"></div></div>
+          <div class="rate"><span id="progressPct">0%</span><span id="speed"></span></div>
+          <button class="link-button" id="openFolder" style="margin-top:19px" type="button">Abrir pasta de downloads ↗</button>
+        </section>
+        <section class="side-card">
+          <h3>Como funciona</h3>
+          <div class="info-row"><span class="count">1</span><span>O programa abre a <strong style="color:#dee9f2">página informada</strong> pelo extrator de mídia.</span></div>
+          <div class="info-row"><span class="count">2</span><span>Se falhar, testa alternativas de <strong style="color:#dee9f2">formato, rede e protocolo</strong>.</span></div>
+          <div class="info-row"><span class="count">3</span><span>Se possível, identifica o arquivo e salva <strong style="color:#dee9f2">direto na sua pasta</strong>.</span></div>
+        </section>
+      </aside>
+    </main>
+    <footer class="footer"><span>Site Media Downloader · Aplicativo local e independente</span><span><strong>Privacidade:</strong> sem conta e sem upload para nossos servidores</span></footer>
+  </div>
+<script>
+(function () {
+  'use strict';
+  var mode = 'video';
+  var busy = false;
+  var $ = function (id) { return document.getElementById(id); };
+  function send(type, extra) {
+    if (!window.chrome || !window.chrome.webview) {
+      showState('Falha', 'Este painel deve ser aberto pelo aplicativo Windows.', 'error');
+      return;
+    }
+    window.chrome.webview.postMessage(Object.assign({type:type}, extra || {}));
+  }
+  function setMode(next) {
+    if (busy) return;
+    mode = next;
+    document.querySelectorAll('[data-mode]').forEach(function (button) {
+      var active = button.dataset.mode === next;
+      button.classList.toggle('selected', active);
+      button.setAttribute('aria-pressed', String(active));
+    });
+    $('qualityWrap').style.display = next === 'video' ? '' : 'none';
+    $('formatWrap').style.display = next === 'audio' ? '' : 'none';
+    $('strategyInfo').innerHTML = next === 'video'
+      ? '<option>Automático (até 11 métodos)</option>'
+      : '<option>Automático (até 10 métodos)</option>';
+  }
+  function showState(label, detail, type) {
+    $('stateLabel').textContent = label;
+    $('detail').textContent = detail;
+    $('stateDot').className = 'dot ' + (type || '');
+  }
+  function setBusy(next) {
+    busy = next;
+    $('start').disabled = next;
+    $('chooseFolder').disabled = next;
+    $('cancel').classList.toggle('show', next);
+    $('start').textContent = next ? 'Baixando...' : '↓   Baixar mídia da página';
+  }
+  document.querySelectorAll('[data-mode]').forEach(function(button) {
+    button.addEventListener('click', function() { setMode(button.dataset.mode); });
+  });
+  $('start').addEventListener('click', function () {
+    var url = $('url').value.trim();
+    if (!/^https?:\/\/[^/\s?#]+/i.test(url)) {
+      showState('Link inválido', 'Cole o link completo da página começando por https:// ou http://.', 'error');
+      $('url').focus();
+      return;
+    }
+    $('mediaTitle').textContent = 'Preparando mídia...';
+    $('progressBar').style.width = '0%';
+    $('progressPct').textContent = '0%';
+    $('speed').textContent = '';
+    setBusy(true);
+    send('start', { url:url, mode:mode, quality:$('quality').value, audioFormat:$('audioFormat').value });
+  });
+  $('cancel').addEventListener('click', function () { send('cancel'); showState('Cancelando...', 'Encerrando a tentativa em andamento.', 'active'); });
+  $('chooseFolder').addEventListener('click', function () { send('choose-folder'); });
+  $('openFolder').addEventListener('click', function () { send('open-folder'); });
+  $('url').addEventListener('keydown', function(e) { if (e.key === 'Enter' && !busy) $('start').click(); });
+  window.receiveNative = function(message) {
+    var data = message.data || {};
+    switch(message.type) {
+      case 'ready':
+        $('folder').textContent = data.folder || '';
+        $('folder').title = data.folder || '';
+        $('appVersion').textContent = data.version || '0.1.0';
+        break;
+      case 'folder':
+        $('folder').textContent = data.folder || '';
+        $('folder').title = data.folder || '';
+        break;
+      case 'started':
+        setBusy(true);
+        showState('Identificando mídia', 'Analisando o endereço informado...', 'active');
+        break;
+      case 'strategy':
+        showState('Tentativa ' + data.attempt + '/' + data.total,
+          (data.name || 'Tentativa automática') + ' · ' + (data.source || 'Página'), 'active');
+        break;
+      case 'progress':
+        var pct = Math.max(0, Math.min(100, Number(data.percent) || 0));
+        $('progressBar').style.width = pct.toFixed(1) + '%';
+        $('progressPct').textContent = Math.round(pct) + '%';
+        $('speed').textContent = (data.speed || '') + (data.eta ? ' · ETA ' + data.eta : '');
+        break;
+      case 'title':
+        $('mediaTitle').textContent = data.title || 'Baixando mídia...';
+        break;
+      case 'notice':
+        $('detail').textContent = data.text || '';
+        break;
+      case 'completed':
+        $('progressBar').style.width = '100%';
+        $('progressPct').textContent = '100%';
+        $('mediaTitle').textContent = data.title || 'Download concluído';
+        $('speed').textContent = '';
+        showState('Concluído', 'Mídia salva na pasta escolhida.', 'active');
+        break;
+      case 'cancelled':
+        showState('Cancelado', data.text || 'Download interrompido.', '');
+        break;
+      case 'error':
+        showState('Não foi possível baixar', data.text || 'Falha não identificada.', 'error');
+        break;
+      case 'idle':
+        setBusy(false);
+        break;
+    }
+  };
+  setMode('video');
+})();
+</script>
+</body>
+</html>
