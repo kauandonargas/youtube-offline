@@ -173,6 +173,50 @@ public sealed class YtDlpService
             item.Error = null;
             job.Status = "downloading";
 
+            // Se o usuário selecionou uma fonte realmente recebida no navegador,
+            // tente primeiro um transporte independente do extrator yt-dlp.
+            if (req.CapturedMedia && req.CapturedKind is "Vídeo" or "Áudio" or "HLS" or "DASH")
+            {
+                string page = MediaCore.BrowserMediaClassifier.IsWebPage(req.SourcePage)
+                    ? req.SourcePage : "";
+                var selected = new MediaCore.BrowserMediaCandidate(
+                    req.Url, req.CapturedKind, page, "");
+                try
+                {
+                    item.Strategy = "Transporte direto HTTP / FFmpeg";
+                    item.Attempt = 1;
+                    item.AttemptTotal = 1;
+                    string engine = ffmpeg ?? _tools.LocateFfmpeg() ??
+                        (await _tools.EnsureFfmpegAsync(cts.Token)).Ffmpeg;
+                    string destination = await MediaCore.DirectMediaTransport.DownloadAsync(
+                        selected, _store.Settings.LibraryFolder, engine,
+                        percent =>
+                        {
+                            if (percent.HasValue)
+                            {
+                                item.Progress = percent.Value;
+                                job.Progress = percent.Value;
+                            }
+                        }, cts.Token);
+                    item.Title = Path.GetFileName(destination);
+                    item.Progress = 100;
+                    item.Status = "completed";
+                    item.Error = null;
+                    item.FailureCode = "";
+                    job.Status = "completed";
+                    job.Progress = 100;
+                    job.CompletedItems = 1;
+                    _scanner.Scan();
+                    return;
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex)
+                {
+                    item.Error = "Falha no transporte direto: " + ex.Message +
+                        " Tentando extrator alternativo.";
+                }
+            }
+
             // Cada tentativa reextrai o URL; playlists reutilizam um arquivo de
             // concluídos, sem rebaixar arquivos já finalizados na mesma sessão.
             IReadOnlyList<DownloadProfile> profiles = req.CapturedMedia
