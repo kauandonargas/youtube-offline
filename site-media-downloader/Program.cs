@@ -164,11 +164,12 @@ public sealed class MainWindow : Form
 
             var browser = root.TryGetProperty("browser", out var b) ? b.GetString() : "none";
             string referer = root.TryGetProperty("referer", out var r) ? r.GetString() ?? "" : "";
-            // A origem é metadado de uma fonte explicitamente escolhida no navegador.
             if (!BrowserMediaClassifier.IsWebPage(referer)) referer = "";
+            string mediaKind = root.TryGetProperty("capturedKind", out var ck) ? ck.GetString() ?? "" : "";
+            if (mediaKind is not ("Vídeo" or "Áudio" or "HLS" or "DASH")) mediaKind = "";
             var settings = new DownloadEngine.DownloadSettings(
                 url, _folder, mode == "audio", quality, audioFormat,
-                MediaDiagnostics.NormalizeBrowser(browser), referer);
+                MediaDiagnostics.NormalizeBrowser(browser), referer, mediaKind);
             _active = new CancellationTokenSource();
             var token = _active.Token;
             Send("started", new { url });
