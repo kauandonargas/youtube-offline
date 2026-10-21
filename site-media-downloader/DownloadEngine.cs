@@ -11,7 +11,7 @@ namespace SiteMediaDownloader;
 public static class DownloadEngine
 {
     public sealed record Profile(string Name, string Format, string[] Options);
-    public sealed record DownloadSettings(string Url, string Folder, bool Audio, string Quality, string AudioFormat, string Browser = "none");
+    public sealed record DownloadSettings(string Url, string Folder, bool Audio, string Quality, string AudioFormat, string Browser = "none", string Referer = "");
 
     private static readonly Profile[] VideoProfiles =
     [
@@ -120,6 +120,8 @@ public static class DownloadEngine
         var browser = MediaDiagnostics.NormalizeBrowser(settings.Browser);
         if (browser != "none")
             args.AddRange(["--cookies-from-browser", browser]);
+        if (BrowserMediaClassifier.IsWebPage(settings.Referer))
+            args.AddRange(["--add-header", "Referer:" + settings.Referer]);
         args.AddRange(profile.Options);
         args.Add(pageUrl);
         return args;
