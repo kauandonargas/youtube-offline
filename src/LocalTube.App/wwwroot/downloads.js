@@ -224,6 +224,7 @@
           playlist: !!analysis.isPlaylist,
           cookieBrowser: state.downloadCookieBrowser,
           capturedMedia: !!state.downloadCaptured && state.downloadCaptured.url === url,
+          capturedKind: state.downloadCaptured?.kind || "",
           sourcePage: state.downloadCaptured?.sourcePage || ""
         }
       });
