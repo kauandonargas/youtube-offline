@@ -23,13 +23,13 @@ foreach (bool audio in new[] { false, true })
     {
         var settings = new DownloadEngine.DownloadSettings(
             "https://example.com/page", @"C:\Temp\Media", audio, "720", audio ? "mp3" : "original");
-        var args = DownloadEngine.BuildArguments(settings, p, @"C:\Temp\Media", settings.Url);
-        Check(args[^1] == settings.Url, "Página precisa ser repassada ao extrator");
-        Check(args.Contains("--no-playlist"), "Download unitário é o padrão");
-        Check(args.Contains("-f"), "Seletor de formato ausente");
+        var arguments = DownloadEngine.BuildArguments(settings, p, @"C:\Temp\Media", settings.Url);
+        Check(arguments[^1] == settings.Url, "Página precisa ser repassada ao extrator");
+        Check(arguments.Contains("--no-playlist"), "Download unitário é o padrão");
+        Check(arguments.Contains("-f"), "Seletor de formato ausente");
         Check(DownloadEngine.FormatSelector(audio, "720", p.Format).Length > 0, "Seletor vazio");
         if (!audio) Check(DownloadEngine.FormatSelector(false, "720", p.Format).Contains("height<=720"), "Respeitar qualidade");
-        if (audio) Check(args.Contains("--audio-format") && args.Contains("mp3"), "Conversão MP3");
+        if (audio) Check(arguments.Contains("--audio-format") && arguments.Contains("mp3"), "Conversão MP3");
     }
 }
 
