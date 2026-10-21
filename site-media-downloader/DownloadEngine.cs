@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
+using MediaCore;
 
 namespace SiteMediaDownloader;
 
@@ -10,7 +11,7 @@ namespace SiteMediaDownloader;
 public static class DownloadEngine
 {
     public sealed record Profile(string Name, string Format, string[] Options);
-    public sealed record DownloadSettings(string Url, string Folder, bool Audio, string Quality, string AudioFormat);
+    public sealed record DownloadSettings(string Url, string Folder, bool Audio, string Quality, string AudioFormat, string Browser = "none");
 
     private static readonly Profile[] VideoProfiles =
     [
@@ -98,6 +99,7 @@ public static class DownloadEngine
             "--retries", "3", "--fragment-retries", "3", "--extractor-retries", "2",
             "--socket-timeout", "25", "--concurrent-fragments", "3",
             "--print", "before_dl:TITLE:%(title)s",
+            "--print", "after_move:FILE_DONE:%(filepath)s",
             "--progress-template", "download:PROGRESS:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s",
             "--ffmpeg-location", ffmpegFolder,
             "-o", output,
@@ -115,6 +117,9 @@ public static class DownloadEngine
         {
             args.AddRange(["--merge-output-format", "mp4"]);
         }
+        var browser = MediaDiagnostics.NormalizeBrowser(settings.Browser);
+        if (browser != "none")
+            args.AddRange(["--cookies-from-browser", browser]);
         args.AddRange(profile.Options);
         args.Add(pageUrl);
         return args;
@@ -157,30 +162,49 @@ public static class DownloadEngine
 
                 var args = BuildArguments(settings, profile, Path.GetDirectoryName(ffmpeg)!, mediaUrl);
                 var result = await RunYtDlpAsync(ytdlp, settings.Folder, args, report, token);
-                if (result.ExitCode == 0 && !result.HasErrors)
+                if (result.ExitCode == 0 && !result.HasErrors && result.FileConfirmed)
                 {
-                    report("completed", new { title = result.Title ?? "Download concluído", folder = settings.Folder });
+                    report("completed", new { title = result.Title ?? "Download concluído", folder = settings.Folder, verified = true });
                     return;
                 }
 
                 lastError = result.Error.Trim();
-                if (lastError.Length > 1000) lastError = lastError[^1000..];
-                bool cloudflare = IsCloudflare(result.Error);
-                if (profile.Name == "Compatibilidade de páginas") cloudflareCompatTried = true;
-                if (IsAccessRestricted(result.Error))
-                    throw new InvalidOperationException(
-                        "O site exige autenticação, CAPTCHA ou proteção de acesso. " +
-                        "Não é possível resolver esse tipo de restrição automaticamente.");
-                if (IsRateLimited(result.Error))
-                    throw new InvalidOperationException(
-                        "O site limitou temporariamente as solicitações (429). Aguarde antes de repetir o download.");
-                if (cloudflare && cloudflareCompatTried)
-                    throw new InvalidOperationException(
-                        "O site bloqueou a extração com Cloudflare, inclusive após a tentativa de compatibilidade HTTP. " +
-                        "É necessário usar um método disponibilizado pelo próprio site.");
+                if (lastError.Length > 700) lastError = lastError[^700..];
+                var diagnosis = MediaDiagnostics.Classify(result.Error);
+                if (result.ExitCode == 0 && !result.HasErrors && !result.FileConfirmed)
+                {
+                    diagnosis = new("unverified", "A ferramenta terminou sem confirmar um arquivo salvo. Não vou indicar sucesso sem verificar o resultado.", false, false);
+                }
 
-                report("notice", new { text = "Método não funcionou; tentando alternativa. " +
-                    (string.IsNullOrWhiteSpace(lastError) ? "" : lastError) });
+                report("diagnosis", new
+                {
+                    code = diagnosis.Code,
+                    message = diagnosis.Message,
+                    browserSuggested = diagnosis.BrowserSuggested
+                });
+
+                if (profile.Name == "Compatibilidade de páginas") cloudflareCompatTried = true;
+
+                // Cloudflare: apenas uma tentativa HTTP compatível, depois parar.
+                // Repetir dez perfis no mesmo desafio não concede permissão.
+                if (diagnosis.Code == "cloudflare" && cloudflareCompatTried)
+                    throw new InvalidOperationException(
+                        "A página exige verificação do Cloudflare e a compatibilidade HTTP não funcionou. " +
+                        "Abra a página no seu navegador, conclua qualquer verificação legítima e tente novamente com uma sessão autorizada, se necessário.");
+
+                if (diagnosis.Stop)
+                    throw new InvalidOperationException(diagnosis.Message);
+
+                report("notice", new { text = diagnosis.Message });
+                if (diagnosis.Code == "cloudflare" && index == 0)
+                    continue; // próximo perfil já é a tentativa de compatibilidade.
+
+                if (diagnosis.Code == "unsupported" && source == 0)
+                {
+                    // Um extrator especializado não reconheceu a página;
+                    // procurar fontes HTML5 em vez de insistir em formatos.
+                    index = profiles.Count - 1;
+                }
                 if (index + 1 < profiles.Count)
                     await Task.Delay(800, token);
             }
@@ -205,7 +229,7 @@ public static class DownloadEngine
             (string.IsNullOrWhiteSpace(lastError) ? "" : "Último erro: " + lastError));
     }
 
-    private sealed record ProcessResult(int ExitCode, string Error, bool HasErrors, string? Title);
+    private sealed record ProcessResult(int ExitCode, string Error, bool HasErrors, string? Title, bool FileConfirmed);
 
     private static async Task<ProcessResult> RunYtDlpAsync(
         string executable, string folder, IReadOnlyList<string> arguments,
@@ -226,6 +250,8 @@ public static class DownloadEngine
         var lines = new StringBuilder();
         string? title = null;
         bool hasErrors = false;
+        bool fileConfirmed = false;
+        var writeGate = new object();
 
         async Task ReadAsync(StreamReader reader)
         {
@@ -248,6 +274,20 @@ public static class DownloadEngine
                         });
                     }
                 }
+                else if (line.StartsWith("FILE_DONE:", StringComparison.Ordinal))
+                {
+                    var candidate = line["FILE_DONE:".Length..].Trim();
+                    try
+                    {
+                        var root = Path.GetFullPath(folder).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                        var full = Path.GetFullPath(candidate);
+                        if (full.StartsWith(root, StringComparison.OrdinalIgnoreCase) &&
+                            File.Exists(full) && new FileInfo(full).Length > 0)
+                            fileConfirmed = true;
+                    }
+                    catch (IOException) { }
+                    catch (ArgumentException) { }
+                }
                 else if (line.StartsWith("TITLE:", StringComparison.Ordinal))
                 {
                     title = line["TITLE:".Length..].Trim();
@@ -257,8 +297,11 @@ public static class DownloadEngine
                 {
                     if (line.Contains("ERROR:", StringComparison.OrdinalIgnoreCase))
                         hasErrors = true;
-                    lines.AppendLine(line);
-                    if (lines.Length > 16_000) lines.Remove(0, lines.Length - 12_000);
+                    lock (writeGate)
+                    {
+                        lines.AppendLine(line);
+                        if (lines.Length > 16_000) lines.Remove(0, lines.Length - 12_000);
+                    }
                 }
             }
         }
@@ -269,7 +312,7 @@ public static class DownloadEngine
             var stderr = ReadAsync(process.StandardError);
             await process.WaitForExitAsync(token);
             await Task.WhenAll(stdout, stderr);
-            return new ProcessResult(process.ExitCode, lines.ToString(), hasErrors, title);
+            return new ProcessResult(process.ExitCode, lines.ToString(), hasErrors, title, fileConfirmed);
         }
         catch (OperationCanceledException)
         {
