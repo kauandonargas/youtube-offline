@@ -199,6 +199,9 @@ public static class DownloadEngine
                 if (diagnosis.Code == "cloudflare" && index == 0)
                     continue; // próximo perfil já é a tentativa de compatibilidade.
 
+                if (diagnosis.Code == "format" && index < profiles.Count - 1)
+                    report("notice", new { text = "Formato indisponível; selecionando outro perfil de mídia." });
+
                 if (diagnosis.Code == "unsupported" && source == 0)
                 {
                     // Um extrator especializado não reconheceu a página;
@@ -206,7 +209,7 @@ public static class DownloadEngine
                     index = profiles.Count - 1;
                 }
                 if (index + 1 < profiles.Count)
-                    await Task.Delay(800, token);
+                    await Task.Delay(diagnosis.Code == "network" ? 2200 : 800, token);
             }
 
             // Se o extrator genérico falhou, procurar fontes HTML5 e metadados de
