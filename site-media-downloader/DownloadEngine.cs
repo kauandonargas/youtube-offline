@@ -11,7 +11,7 @@ namespace SiteMediaDownloader;
 public static class DownloadEngine
 {
     public sealed record Profile(string Name, string Format, string[] Options);
-    public sealed record DownloadSettings(string Url, string Folder, bool Audio, string Quality, string AudioFormat, string Browser = "none", string Referer = "");
+    public sealed record DownloadSettings(string Url, string Folder, bool Audio, string Quality, string AudioFormat, string Browser = "none", string Referer = "", string CapturedKind = "");
 
     private static readonly Profile[] VideoProfiles =
     [
@@ -140,6 +140,36 @@ public static class DownloadEngine
         string ffmpeg = Path.Combine(AppContext.BaseDirectory, "tools", "ffmpeg.exe");
         if (!File.Exists(ytdlp) || !File.Exists(ffmpeg))
             throw new InvalidOperationException("O instalador não contém yt-dlp/FFmpeg. Reinstale o programa.");
+
+        // Primeiro mecanismo realmente independente: HTTP / FFmpeg para uma
+        // fonte identificada e escolhida explicitamente no navegador.
+        if (settings.CapturedKind is "Vídeo" or "Áudio" or "HLS" or "DASH")
+        {
+            var selected = new BrowserMediaCandidate(
+                settings.Url, settings.CapturedKind, settings.Referer, "");
+            try
+            {
+                report("strategy", new { name = "Transporte direto HTTP / FFmpeg",
+                    attempt = 1, total = 1, source = "Fonte detectada no navegador" });
+                string destination = await DirectMediaTransport.DownloadAsync(
+                    selected, settings.Folder, ffmpeg,
+                    percent =>
+                    {
+                        if (percent.HasValue)
+                            report("progress", new { percent = percent.Value,
+                                speed = "Transporte direto", eta = "" });
+                    }, token);
+                report("completed", new { title = Path.GetFileName(destination),
+                    folder = settings.Folder, verified = true, transport = "direct" });
+                return;
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                report("notice", new { text = "Transporte direto indisponível: " +
+                    ex.Message + " Tentando extração pelo yt-dlp." });
+            }
+        }
 
         var profiles = Profiles(settings.Audio);
         string lastError = "";
