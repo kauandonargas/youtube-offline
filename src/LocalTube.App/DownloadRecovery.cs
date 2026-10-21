@@ -38,6 +38,29 @@ public static class DownloadRecovery
 
     public static IReadOnlyList<DownloadProfile> Profiles(bool audio) => audio ? AudioProfiles : VideoProfiles;
 
+    // O extrator genérico recomenda este modo quando Cloudflare bloqueia a
+    // negociação HTTP. A tentativa é única; não automatiza CAPTCHAs nem sessões.
+    public static DownloadProfile CloudflareProfile(bool audio) =>
+        new("generic-impersonate", "Compatibilidade HTTP do extrator genérico",
+            audio ? "audio-default" : "standard",
+            ["--no-cache-dir", "--extractor-args", "generic:impersonate"]);
+
+    public static bool IsCloudflareChallenge(string? error) =>
+        !string.IsNullOrWhiteSpace(error) &&
+        (error.Contains("Cloudflare anti-bot challenge", StringComparison.OrdinalIgnoreCase) ||
+         error.Contains("Cloudflare challenge", StringComparison.OrdinalIgnoreCase) ||
+         (error.Contains("[generic]", StringComparison.OrdinalIgnoreCase) &&
+          error.Contains("generic:impersonate", StringComparison.OrdinalIgnoreCase)));
+
+    public static string CloudflareHelp(string? error)
+    {
+        var reason = string.IsNullOrWhiteSpace(error) ? "" : " Detalhe: " + error.Trim();
+        return "O site exige uma verificação do Cloudflare. O programa tentou " +
+               "o modo de compatibilidade indicado pelo yt-dlp, mas não obteve acesso. " +
+               "Abra o endereço no navegador e utilize uma opção de download autorizada " +
+               "pelo site. CAPTCHAs ou exigências de acesso não podem ser resolvidos automaticamente." + reason;
+    }
+
     public static string FormatSelector(bool audio, string? quality, string formatKind)
     {
         if (audio)
