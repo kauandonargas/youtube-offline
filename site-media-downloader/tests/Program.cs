@@ -1,3 +1,4 @@
+using MediaCore;
 using SiteMediaDownloader;
 
 static void Check(bool condition, string reason)
@@ -47,4 +48,21 @@ Check(found.Contains("https://example.com/preview.mp4"), "Detectar OpenGraph");
 Check(found.Contains("https://cdn.example.com/master.mp4"), "Detectar JSON-LD");
 Check(found.Contains("https://player.example.com/embed/123"), "Detectar iframe");
 Check(!found.Any(x => x.Contains("127.0.0.1")), "Não seguir referências para rede local");
+Check(MediaDiagnostics.Classify("ERROR: [generic] Got HTTP Error 403 caused by Cloudflare anti-bot challenge; try again with --extractor-args generic:impersonate").Code == "cloudflare", "Detectar Cloudflare e sugerir navegador.");
+Check(MediaDiagnostics.Classify("ERROR: Sign in to confirm you're not a bot").Stop, "Desafio humano não deve fazer retry automático.");
+Check(MediaDiagnostics.Classify("ERROR: HTTP Error 429: Too Many Requests").Code == "rate_limited", "429 não deve disparar dezenas de métodos.");
+Check(MediaDiagnostics.Classify("DRM protected").Code == "drm", "Identificar DRM.");
+Check(MediaDiagnostics.Classify("ERROR: Requested format is not available").Code == "format", "Detectar falha que justifica tentar outro formato.");
+Check(MediaDiagnostics.Classify("Connection reset by peer").Code == "network", "Detectar falha transitória de rede.");
+Check(MediaDiagnostics.Classify("HTTP Error 403: Forbidden").Code == "forbidden", "403 sem Cloudflare tem causa diferente.");
+Check(MediaDiagnostics.NormalizeBrowser("ChRoMe") == "chrome", "Aceitar somente navegador autorizado.");
+Check(MediaDiagnostics.NormalizeBrowser("--exec-malicious") == "none", "Bloquear injeção nas opções de navegador.");
+var sessionSettings = new DownloadEngine.DownloadSettings("https://example.com/movie", @"C:\Temp\Media", false, "720", "original", "chrome");
+var sessionArguments = DownloadEngine.BuildArguments(sessionSettings, DownloadEngine.Profiles(false)[0], @"C:\Tools", sessionSettings.Url);
+Check(sessionArguments.Contains("--cookies-from-browser"), "A sessão escolhida deve ser enviada.");
+Check(sessionArguments.Contains("chrome"), "Selecionar o navegador autorizado.");
+Check(sessionArguments.Contains("after_move:FILE_DONE:%(filepath)s"), "Confirmar o arquivo no fim do download.");
+var defaultSettings = sessionSettings with { Browser = "none" };
+var defaultArguments = DownloadEngine.BuildArguments(defaultSettings, DownloadEngine.Profiles(false)[0], @"C:\Tools", defaultSettings.Url);
+Check(!defaultArguments.Contains("--cookies-from-browser"), "Não acessar sessões sem permissão explícita.");
 Console.WriteLine("Site Media Downloader: testes de perfis, páginas e segurança passaram.");
