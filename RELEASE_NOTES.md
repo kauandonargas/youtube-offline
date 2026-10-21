@@ -1,8 +1,9 @@
-# YouTube Offline 0.5.19
+# YouTube Offline 0.5.20
 
-- Corrige a falha do Restart Manager ao tentar fechar outros programas que mantêm o yt-dlp.exe em uso durante a atualização.
-- Restringe a detecção de aplicativos a fechar aos arquivos executáveis e bibliotecas do YouTube Offline, preservando ferramentas externas em execução.
-- Elimina definitivamente a instalação automática na inicialização: o programa apenas verifica atualizações e não fecha sem solicitação.
-- Adiciona verificações reais no Windows: abertura e permanência do processo, API local, métricas de CPU/memória e reinstalação com yt-dlp bloqueado.
-- Bloqueia a publicação se o teste de reinstalação com ferramenta bloqueada falhar.
-- Mantém o mecanismo de downloads e as demais funcionalidades da 0.5.18.
+- Introduz 10 estratégias automáticas para vídeos e 10 para áudios, com variações de extração, cache, rede, IPv4, formatos e HLS.
+- Mostra qual estratégia está em execução e o número da tentativa.
+- Em playlists, salva os itens concluídos em um arquivo de controle e evita rebaixá-los durante novas tentativas.
+- Não informa sucesso completo quando restam itens com falhas: sinaliza resultado parcial.
+- Interrompe tentativas diante de restrições de acesso, DRM, autenticação obrigatória e limite temporário de solicitações (429).
+- Mantém cancelamento, formatos, qualidade configurada, biblioteca offline e atualização pelo aplicativo.
+- Validação automatizada dos perfis de recuperação e testes Windows de abertura e reinstalação.
