@@ -94,6 +94,9 @@ public sealed class DownloadItemJob
     public string Speed { get; set; } = "";
     public string Eta { get; set; } = "";
     public string? Error { get; set; }
+    public int Attempt { get; set; }
+    public int AttemptTotal { get; set; }
+    public string Strategy { get; set; } = "";
     public bool Duplicate { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
