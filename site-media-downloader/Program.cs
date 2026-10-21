@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
+using MediaCore;
 
 namespace SiteMediaDownloader;
 
@@ -19,6 +20,7 @@ public sealed class MainWindow : Form
 {
     private readonly WebView2 _view = new() { Dock = DockStyle.Fill };
     private CancellationTokenSource? _active;
+    private BrowserMediaWindow? _inspector;
     private string _folder;
 
     public MainWindow()
@@ -68,7 +70,7 @@ public sealed class MainWindow : Form
                 CoreWebView2HostResourceAccessKind.DenyCors);
             core.Navigate("https://site-media.local/index.html");
             core.NavigationCompleted += (_, _) =>
-                Send("ready", new { folder = _folder, version = "0.2.0" });
+                Send("ready", new { folder = _folder, version = "0.3.0" });
         }
         catch (Exception ex)
         {
@@ -111,6 +113,26 @@ public sealed class MainWindow : Form
                 Process.Start(start);
                 return;
             }
+            if (type == "inspect-page")
+            {
+                string page = root.TryGetProperty("url", out var source) ? source.GetString() ?? "" : "";
+                if (!BrowserMediaClassifier.IsWebPage(page))
+                    throw new ArgumentException("Informe uma página HTTP/HTTPS para inspecionar.");
+                if (_inspector is not null && !_inspector.IsDisposed)
+                {
+                    _inspector.Activate();
+                    return;
+                }
+                string profile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "Site Media Downloader", "MediaBrowser");
+                _inspector = new BrowserMediaWindow(page, profile, media =>
+                {
+                    Send("media-found", new { url = media.Url, referer = media.SourcePage, kind = media.Kind });
+                });
+                _inspector.FormClosed += (_, _) => _inspector = null;
+                _inspector.Show(this);
+                return;
+            }
             if (type == "open-page")
             {
                 string page = root.TryGetProperty("url", out var pageElement) ? pageElement.GetString() ?? "" : "";
@@ -141,8 +163,13 @@ public sealed class MainWindow : Form
             }
 
             var browser = root.TryGetProperty("browser", out var b) ? b.GetString() : "none";
+            string referer = root.TryGetProperty("referer", out var r) ? r.GetString() ?? "" : "";
+            if (!BrowserMediaClassifier.IsWebPage(referer)) referer = "";
+            string mediaKind = root.TryGetProperty("capturedKind", out var ck) ? ck.GetString() ?? "" : "";
+            if (mediaKind is not ("Vídeo" or "Áudio" or "HLS" or "DASH")) mediaKind = "";
             var settings = new DownloadEngine.DownloadSettings(
-                url, _folder, mode == "audio", quality, audioFormat, MediaCore.MediaDiagnostics.NormalizeBrowser(browser));
+                url, _folder, mode == "audio", quality, audioFormat,
+                MediaDiagnostics.NormalizeBrowser(browser), referer, mediaKind);
             _active = new CancellationTokenSource();
             var token = _active.Token;
             Send("started", new { url });

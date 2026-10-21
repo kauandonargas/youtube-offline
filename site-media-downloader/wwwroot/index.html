@@ -81,7 +81,7 @@
   <div class="wrap">
     <header class="top">
       <div class="brand"><div class="logo">↧</div><span>Site Media <span style="color:var(--mint)">Downloader</span></span></div>
-      <div class="badge">APP PARA WINDOWS · <span id="appVersion">0.2.0</span></div>
+      <div class="badge">APP PARA WINDOWS · <span id="appVersion">0.3.0</span></div>
     </header>
 
     <section class="hero">
@@ -133,7 +133,9 @@
             <option value="brave">Brave</option>
           </select>
           <p style="font-size:11px;line-height:1.55;color:#a2b5c3;margin:10px 0 4px">Somente quando você escolher: o mecanismo poderá ler os cookies do navegador selecionado para acessar conteúdo permitido à sua conta. Não armazena esses cookies no aplicativo. Pode ser necessário fechar o navegador antes de tentar.</p>
-          <button type="button" class="link-button" id="openPage">Abrir página no navegador ↗</button>
+          <button type="button" class="link-button" id="inspectPage" style="margin-right:18px">Detectar mídia no navegador ↗</button>
+          <button type="button" class="link-button" id="openPage">Abrir navegador externo ↗</button>
+          <p id="sourceInfo" style="color:#91e3c1;font-size:12px;line-height:1.5"></p>
         </div>
         <label class="field">Onde salvar</label>
         <div class="destination">
@@ -173,6 +175,8 @@
 (function () {
   'use strict';
   var mode = 'video';
+  var capturedReferer = '';
+  var capturedKind = '';
   var busy = false;
   var $ = function (id) { return document.getElementById(id); };
   function send(type, extra) {
@@ -223,7 +227,17 @@
     $('progressPct').textContent = '0%';
     $('speed').textContent = '';
     setBusy(true);
-    send('start', { url:url, mode:mode, quality:$('quality').value, audioFormat:$('audioFormat').value, browser:$('browser').value });
+    send('start', { url:url, mode:mode, quality:$('quality').value, audioFormat:$('audioFormat').value, browser:$('browser').value, referer:capturedReferer, capturedKind:capturedKind });
+  });
+  $('inspectPage').addEventListener('click', function() {
+    var u = $('url').value.trim();
+    if (u) send('inspect-page', {url:u});
+    else showState('Link necessário', 'Cole o endereço da página antes de abrir o inspetor.', 'error');
+  });
+  $('url').addEventListener('input', function () {
+    capturedReferer = '';
+    capturedKind = '';
+    $('sourceInfo').textContent = '';
   });
   $('openPage').addEventListener('click', function() { var u = $('url').value.trim(); if (u) send('open-page', {url:u}); });
   $('cancel').addEventListener('click', function () { send('cancel'); showState('Cancelando...', 'Encerrando a tentativa em andamento.', 'active'); });
@@ -236,11 +250,18 @@
       case 'ready':
         $('folder').textContent = data.folder || '';
         $('folder').title = data.folder || '';
-        $('appVersion').textContent = data.version || '0.2.0';
+        $('appVersion').textContent = data.version || '0.3.0';
         break;
       case 'folder':
         $('folder').textContent = data.folder || '';
         $('folder').title = data.folder || '';
+        break;
+      case 'media-found':
+        $('url').value = data.url || '';
+        capturedReferer = data.referer || '';
+        capturedKind = data.kind || '';
+        $('sourceInfo').textContent = 'Fonte ' + (data.kind || 'de mídia') + ' detectada no navegador. O link pode expirar ou conter apenas uma faixa de vídeo/áudio.';
+        showState('Fonte encontrada', 'Você escolheu uma fonte real recebida pelo navegador. Clique em Baixar para testar esta fonte.', 'active');
         break;
       case 'started':
         setBusy(true);

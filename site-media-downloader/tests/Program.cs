@@ -1,3 +1,6 @@
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
 using MediaCore;
 using SiteMediaDownloader;
 
@@ -65,4 +68,63 @@ Check(sessionArguments.Contains("after_move:FILE_DONE:%(filepath)s"), "Confirmar
 var defaultSettings = sessionSettings with { Browser = "none" };
 var defaultArguments = DownloadEngine.BuildArguments(defaultSettings, DownloadEngine.Profiles(false)[0], @"C:\Tools", defaultSettings.Url);
 Check(!defaultArguments.Contains("--cookies-from-browser"), "Não acessar sessões sem permissão explícita.");
+var capturedVideo = MediaCore.BrowserMediaClassifier.Examine("https://cdn.example.org/stream?token=abc", "video/mp4", "https://example.org/watch/123", 206);
+Check(capturedVideo is not null && capturedVideo.Kind == "Vídeo", "A captura deve reconhecer streams sem extensão por tipo MIME.");
+Check(MediaCore.BrowserMediaClassifier.Examine("https://cdn.example.org/segment.m4a", "audio/mp4", "https://example.org/watch", 200)?.Kind == "Áudio", "A captura deve reconhecer audio.");
+Check(MediaCore.BrowserMediaClassifier.Examine("https://cdn.example.org/master.m3u8", "application/vnd.apple.mpegurl", "https://example.org/watch", 200)?.Kind == "HLS", "HLS deve ser detectado.");
+Check(MediaCore.BrowserMediaClassifier.Examine("https://cdn.example.org/stream.mpd", "application/dash+xml", "https://example.org/watch", 200)?.Kind == "DASH", "DASH deve ser detectado.");
+Check(MediaCore.BrowserMediaClassifier.Examine("https://cdn.example.org/image.jpg", "image/jpeg", "https://example.org/watch", 200) is null, "Imagens não são mídia de download.");
+Check(MediaCore.BrowserMediaClassifier.Examine("https://cdn.example.org/movie.mp4", "video/mp4", "https://example.org/watch", 403) is null, "Respostas bloqueadas não devem aparecer como mídia acessível.");
+Check(MediaCore.BrowserMediaClassifier.Examine("file:///C:/secret.mp4", "video/mp4", "", 200) is null, "Não usar arquivos locais como recursos remotos.");
+Check(capturedVideo is not null && MediaCore.DirectMediaTransport.IsSupported(capturedVideo), "Transporte independente deve aceitar fonte selecionada.");
+Check(MediaCore.DirectMediaTransport.GuessExtension(capturedVideo!) == ".mp4", "Formato deve ser identificado a partir do MIME.");
+
+// Teste funcional real do caminho HTTP independente do yt-dlp,
+// usando um servidor local controlado, sem depender de serviços externos.
+var server = new TcpListener(IPAddress.Loopback, 0);
+
+{
+    server.Start();
+    int port = ((IPEndPoint)server.LocalEndpoint).Port;
+    string temp = Path.Combine(Path.GetTempPath(), "site-media-test-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(temp);
+    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(12));
+    try
+    {
+        var serverTask = Task.Run(async () =>
+        {
+            using var client = await server.AcceptTcpClientAsync(timeout.Token);
+            using var network = client.GetStream();
+            using var reader = new StreamReader(network, Encoding.ASCII, leaveOpen: true);
+            string? line;
+            while ((line = await reader.ReadLineAsync(timeout.Token)) is not null && line.Length > 0) { }
+            byte[] content = Encoding.ASCII.GetBytes("local-fixture-media");
+            string headers = "HTTP/1.1 200 OK\r\nContent-Type: video/mp4\r\nContent-Length: " +
+                content.Length + "\r\nConnection: close\r\n\r\n";
+            await network.WriteAsync(Encoding.ASCII.GetBytes(headers), timeout.Token);
+            await network.WriteAsync(content, timeout.Token);
+            await network.FlushAsync(timeout.Token);
+        });
+        var media = new BrowserMediaCandidate(
+            "http://127.0.0.1:" + port + "/clip.mp4",
+            "Vídeo", "http://127.0.0.1:" + port + "/watch", "video/mp4");
+        double lastProgress = 0;
+        string saved = await DirectMediaTransport.DownloadAsync(
+            media, temp, "", progress => lastProgress = progress ?? lastProgress,
+            timeout.Token);
+        await serverTask;
+        Check(File.Exists(saved), "Transporte direto deve criar arquivo.");
+        Check(File.ReadAllText(saved) == "local-fixture-media",
+            "Conteúdo transferido deve corresponder ao servidor local.");
+        Check(lastProgress == 100, "Progresso só deve atingir 100 depois de validar arquivo.");
+        Check(!Directory.EnumerateFiles(temp, "*.part").Any(),
+            "Arquivos parciais devem ser removidos.");
+    }
+    finally
+    {
+        server.Stop();
+        Directory.Delete(temp, recursive: true);
+    }
+}
+
 Console.WriteLine("Site Media Downloader: testes de perfis, páginas e segurança passaram.");

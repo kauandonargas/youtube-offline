@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
+using MediaCore;
 
 namespace LocalTube;
 
@@ -9,6 +10,7 @@ public sealed class MainForm : Form
 {
     private readonly string _url;
     private readonly WebView2 _webView = new() { Dock = DockStyle.Fill };
+    private BrowserMediaWindow? _mediaInspector;
 
     public MainForm(string url)
     {
@@ -72,6 +74,35 @@ public sealed class MainForm : Form
             if (!doc.RootElement.TryGetProperty("type", out var type)) return;
             var command = type.GetString();
 
+            if (command == "open-media-inspector")
+            {
+                string page = doc.RootElement.TryGetProperty("url", out var link)
+                    ? link.GetString() ?? "" : "";
+                if (!BrowserMediaClassifier.IsWebPage(page)) return;
+                if (_mediaInspector is not null && !_mediaInspector.IsDisposed)
+                {
+                    _mediaInspector.Activate();
+                    return;
+                }
+                string browserProfile = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "YouTube Offline", "MediaBrowser");
+                _mediaInspector = new BrowserMediaWindow(page, browserProfile, candidate =>
+                {
+                    if (_webView.CoreWebView2 is null) return;
+                    string message = JsonSerializer.Serialize(new
+                    {
+                        url = candidate.Url,
+                        sourcePage = candidate.SourcePage,
+                        kind = candidate.Kind
+                    });
+                    _ = _webView.CoreWebView2.ExecuteScriptAsync(
+                        "window.localTubeMediaCaptured?.(" + message + ");");
+                });
+                _mediaInspector.FormClosed += (_, _) => _mediaInspector = null;
+                _mediaInspector.Show(this);
+                return;
+            }
             if (command == "select-folder")
             {
                 BeginInvoke(new Action(() =>

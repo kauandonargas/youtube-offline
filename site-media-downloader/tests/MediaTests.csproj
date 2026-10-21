@@ -7,6 +7,8 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../shared/MediaDiagnostics.cs" Link="MediaDiagnostics.cs" />
+    <Compile Include="../../shared/BrowserMediaClassifier.cs" Link="BrowserMediaClassifier.cs" />
+    <Compile Include="../../shared/DirectMediaTransport.cs" Link="DirectMediaTransport.cs" />
     <Compile Include="../DownloadEngine.cs" Link="DownloadEngine.cs" />
     <Compile Include="../PageMediaDiscovery.cs" Link="PageMediaDiscovery.cs" />
   </ItemGroup>
