@@ -1,3 +1,6 @@
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
 using MediaCore;
 using SiteMediaDownloader;
 
@@ -75,5 +78,52 @@ Check(MediaCore.BrowserMediaClassifier.Examine("https://cdn.example.org/movie.mp
 Check(MediaCore.BrowserMediaClassifier.Examine("file:///C:/secret.mp4", "video/mp4", "", 200) is null, "Não usar arquivos locais como recursos remotos.");
 Check(capturedVideo is not null && MediaCore.DirectMediaTransport.IsSupported(capturedVideo), "Transporte independente deve aceitar fonte selecionada.");
 Check(MediaCore.DirectMediaTransport.GuessExtension(capturedVideo!) == ".mp4", "Formato deve ser identificado a partir do MIME.");
+
+// Teste funcional real do caminho HTTP independente do yt-dlp,
+// usando um servidor local controlado, sem depender de serviços externos.
+using (var server = new TcpListener(IPAddress.Loopback, 0))
+{
+    server.Start();
+    int port = ((IPEndPoint)server.LocalEndpoint).Port;
+    string temp = Path.Combine(Path.GetTempPath(), "site-media-test-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(temp);
+    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(12));
+    try
+    {
+        var serverTask = Task.Run(async () =>
+        {
+            using var client = await server.AcceptTcpClientAsync(timeout.Token);
+            using var network = client.GetStream();
+            using var reader = new StreamReader(network, Encoding.ASCII, leaveOpen: true);
+            string? line;
+            while ((line = await reader.ReadLineAsync(timeout.Token)) is not null && line.Length > 0) { }
+            byte[] content = Encoding.ASCII.GetBytes("local-fixture-media");
+            string headers = "HTTP/1.1 200 OK\r\nContent-Type: video/mp4\r\nContent-Length: " +
+                content.Length + "\r\nConnection: close\r\n\r\n";
+            await network.WriteAsync(Encoding.ASCII.GetBytes(headers), timeout.Token);
+            await network.WriteAsync(content, timeout.Token);
+            await network.FlushAsync(timeout.Token);
+        });
+        var media = new BrowserMediaCandidate(
+            "http://127.0.0.1:" + port + "/clip.mp4",
+            "Vídeo", "http://127.0.0.1:" + port + "/watch", "video/mp4");
+        double lastProgress = 0;
+        string saved = await DirectMediaTransport.DownloadAsync(
+            media, temp, "", progress => lastProgress = progress ?? lastProgress,
+            timeout.Token);
+        await serverTask;
+        Check(File.Exists(saved), "Transporte direto deve criar arquivo.");
+        Check(File.ReadAllText(saved) == "local-fixture-media",
+            "Conteúdo transferido deve corresponder ao servidor local.");
+        Check(lastProgress == 100, "Progresso só deve atingir 100 depois de validar arquivo.");
+        Check(!Directory.EnumerateFiles(temp, "*.part").Any(),
+            "Arquivos parciais devem ser removidos.");
+    }
+    finally
+    {
+        server.Stop();
+        Directory.Delete(temp, recursive: true);
+    }
+}
 
 Console.WriteLine("Site Media Downloader: testes de perfis, páginas e segurança passaram.");
