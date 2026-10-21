@@ -17,6 +17,8 @@
   <ItemGroup>
     <Compile Remove="tests/**" />
     <Compile Include="../shared/MediaDiagnostics.cs" Link="MediaDiagnostics.cs" />
+    <Compile Include="../shared/BrowserMediaClassifier.cs" Link="BrowserMediaClassifier.cs" />
+    <Compile Include="../shared/BrowserMediaWindow.cs" Link="BrowserMediaWindow.cs" />
     <Content Include="wwwroot/**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
