@@ -118,6 +118,7 @@ public sealed class DownloadRequest
     public string AudioFormat { get; set; } = "original";
     public bool Playlist { get; set; }
     public bool CapturedMedia { get; set; }
+    public string CapturedKind { get; set; } = "";
     public string SourcePage { get; set; } = "";
     // Kept for backward compatibility; ignored by the restored v0.4-style engine.
     public string CookieBrowser { get; set; } = "none";
