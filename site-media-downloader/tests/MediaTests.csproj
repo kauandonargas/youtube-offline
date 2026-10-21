@@ -6,6 +6,7 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../../shared/MediaDiagnostics.cs" Link="MediaDiagnostics.cs" />
     <Compile Include="../DownloadEngine.cs" Link="DownloadEngine.cs" />
     <Compile Include="../PageMediaDiscovery.cs" Link="PageMediaDiscovery.cs" />
   </ItemGroup>
