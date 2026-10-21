@@ -176,6 +176,7 @@
   'use strict';
   var mode = 'video';
   var capturedReferer = '';
+  var capturedKind = '';
   var busy = false;
   var $ = function (id) { return document.getElementById(id); };
   function send(type, extra) {
@@ -226,7 +227,7 @@
     $('progressPct').textContent = '0%';
     $('speed').textContent = '';
     setBusy(true);
-    send('start', { url:url, mode:mode, quality:$('quality').value, audioFormat:$('audioFormat').value, browser:$('browser').value, referer:capturedReferer });
+    send('start', { url:url, mode:mode, quality:$('quality').value, audioFormat:$('audioFormat').value, browser:$('browser').value, referer:capturedReferer, capturedKind:capturedKind });
   });
   $('inspectPage').addEventListener('click', function() {
     var u = $('url').value.trim();
@@ -235,6 +236,7 @@
   });
   $('url').addEventListener('input', function () {
     capturedReferer = '';
+    capturedKind = '';
     $('sourceInfo').textContent = '';
   });
   $('openPage').addEventListener('click', function() { var u = $('url').value.trim(); if (u) send('open-page', {url:u}); });
@@ -257,6 +259,7 @@
       case 'media-found':
         $('url').value = data.url || '';
         capturedReferer = data.referer || '';
+        capturedKind = data.kind || '';
         $('sourceInfo').textContent = 'Fonte ' + (data.kind || 'de mídia') + ' detectada no navegador. O link pode expirar ou conter apenas uma faixa de vídeo/áudio.';
         showState('Fonte encontrada', 'Você escolheu uma fonte real recebida pelo navegador. Clique em Baixar para testar esta fonte.', 'active');
         break;
